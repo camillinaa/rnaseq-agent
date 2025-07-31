@@ -24,12 +24,15 @@ class RNAseqAgent:
         with open(prompts_path, 'r') as file:
             self.prompts_path = yaml.safe_load(file)
 
-        # Initialize memory
+        # Initialize memory and context
         self.memory = ConversationBufferMemory(
             memory_key="chat_history",
             output_key="output", 
             return_messages=True
         )
+        self.context_state = {
+            "stage": "start"  # initial stage
+        }
 
         # Create tools
         self.tools = self._create_tools()
@@ -197,26 +200,73 @@ class RNAseqAgent:
             )
         ]
 
+    def detect_intent(self, user_input: str) -> str:
+        prompt = f"""
+        You are a classification system. Categorize the user's message into **only one** of the following three categories:
+
+        - chitchat → greetings, personal questions (e.g., "Who are you?"), or thanks  
+        - query → questions about RNAseq data, analysis, or database structure  
+        - explanation → questions about theoretical concepts or methods
+        Only return one word: **chitchat**, **query**, or **explanation**.
+        Message: "{user_input.strip()}"
+        """
+        
+        response = utils.invoke_with_retry(self.agent, {"input": prompt}) 
+        print(f"DEBUG: Raw response from intent detection: {response}")
+        intent = response.get("output", "").strip().lower()
+        
+        print(f"DEBUG: Intent full response: {response}") 
+        print(f"DEBUG: Detected intent: {intent}") 
+
+        if "chitchat" in intent:
+            return "chitchat"
+        if "query" in intent:
+            return "query"
+        if "explanation" in intent:
+            return "explanation"
+        else:
+            logger.warning(f"Unrecognized intent: {intent}, falling back to 'explanation'")
+            return "explanation"
+    
     def ask(self, question: str) -> str:
         """Process user question and return response"""
         try:
-            # Add system context about RNAseq analysis
-            system_context = """
-            You are an expert RNAseq data analyst. You have access to an RNAseq database with tools to:
-            1. Query the database using SQL
-            2. Get database schema information
-            3. Create visualizations
+            intent = self.detect_intent(question)
+            self.context_state["last_intent"] = intent
+            
+            # Choose system prompt based on intent
+            if intent == "query":
+                system_context = """
+                You are an expert RNAseq data analyst. You have access to an RNAseq database with tools to:
+                1. Query the database using SQL
+                2. Get database schema information
+                3. Create visualizations
 
-            When analyzing RNAseq data:
-            - Always check the database schema first if you're unsure about available tables/columns
-            - Use appropriate significance thresholds (e.g., padj < 0.05, |log2fc| > 1)
-            - Provide biological context in your interpretations
+                When analyzing RNAseq data:
+                - Always check the database schema first if you're unsure about available tables/columns
+                - Use appropriate significance thresholds (e.g., padj < 0.05, |log2fc| > 1)
+                - Provide biological context in your interpretations
 
-            Start by understanding what data is available, then query appropriately to answer the question.
-            """
+                Start by understanding what data is available, then query appropriately to answer the question.
+                """
 
+            elif intent == "explanation":
+                system_context = """
+                You are an RNAseq data analyst explaining bioinformatics concepts to a non-technical research scientist audience.
+                The user is trying to understand a technical concept related to RNAseq, such as normalization, PCA, log2FC, adjusted p-values, or quality control steps.
+                Your job is to explain clearly, using analogies if useful, and always relate the concept back to how it's used in practice in RNAseq.
+                Keep it concise but insightful.
+                """
+            
+            elif intent == "chitchat":
+                system_context = """
+                You are an RNAseq chatbot with a friendly personality.
+                The user may ask personal or playful questions like "Who are you?", "Do you sleep?", or just want to talk.
+                Stay in character and respond warmly but keep the tone relevant to RNAseq and your capabilities as a data assistant.
+                """
+                
             # Run the agent
-            contextualized_question = f"{system_context}\n\nUser question: {question}"
+            contextualized_question = f"{system_context}\n\nUser: {question}"
             result = utils.invoke_with_retry(self.agent, {"input": contextualized_question}) # calls the invoke method of the agent, but has retry logic in place for error 429
             answer = result.get("output", "")
 
@@ -228,7 +278,7 @@ class RNAseqAgent:
                     break
 
             return answer, plot_filename
-            
+        
         except Exception as e:
             logger.error(f"Agent execution error: {e}")
             return f"I encountered an error while processing your question: {str(e)}"
