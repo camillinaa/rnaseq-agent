@@ -24,6 +24,8 @@ class RNAseqPlotter:
         os.makedirs(output_dir, exist_ok=True)
         pio.templates.default = "plotly_white" # Set default plotly theme
         instructions_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'plot_instructions.yaml')
+        
+        # Load plotting instructions
         with open(instructions_path, 'r') as file:
             self.plot_instructions = yaml.safe_load(file)
 
@@ -46,6 +48,10 @@ class RNAseqPlotter:
             df = pd.DataFrame(data)
             available_columns = list(df.columns)
             
+            logger.info(f"[PLOTTER] Creating {plot_type} plot with {len(df)} rows and {len(df.columns)} columns")
+            logger.debug(f"[PLOTTER] Available columns: {available_columns}")
+            logger.debug(f"[PLOTTER] Data sample:\n{df.head(3).to_string(index=False)}")
+
             now = datetime.now()
             timestamp = now.strftime("%m_%d_%H_%M_%S")
             plot_filename = f"plots/{plot_type}_{timestamp}.html"
@@ -64,23 +70,23 @@ class RNAseqPlotter:
             - Return just the Python code, no explanations
             - Choose appropriate columns based on the data type and plot type
             
-            Follow these instructions for the {plot_type} plot specifically: {self.plot_instructions.get(plot_type, {}).get('instructions', 'No instructions available.')}
+            Follow these instructions for the {plot_type} plot specifically: {self.plot_instructions.get(plot_type, {}).get('instructions', '')}
             """
             
             # DEBUG: Print the code prompt sent to LLM
-            print("="*50)
-            print("CODE PROMPT:")
-            print(code_prompt)
-            print("="*50)
+            # print("="*50)
+            # print("CODE PROMPT:")
+            # print(code_prompt)
+            # print("="*50)
             
             # Get code from LLM
             generated_code = self.llm.invoke(code_prompt).content
             
             # DEBUG: Print what the LLM generated
-            print("="*50)
-            print("GENERATED CODE:")
-            print(repr(generated_code))  # Shows exact string including newlines
-            print("="*50)
+            # print("="*50)
+            # print("GENERATED CODE:")
+            # print(repr(generated_code))  # Shows exact string including newlines
+            # print("="*50)
         
             cleaned_code = utils.clean_generated_code(generated_code)
             
@@ -95,6 +101,8 @@ class RNAseqPlotter:
             
             exec(cleaned_code, exec_globals)
             
+            logger.debug(f"[PLOTTER] Generated code for {plot_type}:\n{cleaned_code}")
+
             return {
                 "summary": f"{plot_type} plot created successfully",
                 "plot_filename": plot_filename,
@@ -102,6 +110,5 @@ class RNAseqPlotter:
             }
             
         except Exception as e:
+            logger.error(f"[PLOTTER] Exception during plot generation: {str(e)}")
             return {"error": f"Plot generation failed: {str(e)}"}
-
-    

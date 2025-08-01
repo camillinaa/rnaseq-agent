@@ -34,4 +34,6 @@ def run_cli():
         agent.close()
 
 if __name__ == "__main__":
-    run_cli()
+    bot = create_agent()
+    bot.refresh_schema_cache()
+    #run_cli()

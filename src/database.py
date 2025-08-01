@@ -1,7 +1,7 @@
 import logging
 import sqlite3
 import logging
-from typing import Dict, Any
+from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,19 @@ class RNAseqDatabase:
 
         except Exception as e:
             return {"error": f"Query execution failed: {str(e)}"}
+
+    def get_table_names(self) -> List[str]:
+        """Return a list of all table names in the connected SQLite database."""
+        query = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
+
+        try:
+            result = self.execute_query(query) 
+            table_names = [row['name'] for row in result]
+            logger.info(f"[DB] Retrieved {len(table_names)} table names from SQLite")
+            return table_names
+        except Exception as e:
+            logger.error(f"[DB] Error fetching table names: {e}")
+            return []
 
     def get_table_info(self) -> Dict[str, Any]:
         """Get information about available tables and their schemas"""
