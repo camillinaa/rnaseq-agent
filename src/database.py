@@ -67,13 +67,20 @@ class RNAseqDatabase:
 
         try:
             result = self.execute_query(query) 
-            table_names = [row['name'] for row in result]
+            
+            if "error" in result:
+                logger.error(f"[DB] Error in get_table_names: {result['error']}")
+                return []
+                
+            # Fix: result['data'] is the list of rows, not result itself
+            table_names = [row['name'] for row in result['data']]
             logger.info(f"[DB] Retrieved {len(table_names)} table names from SQLite")
             return table_names
+            
         except Exception as e:
             logger.error(f"[DB] Error fetching table names: {e}")
             return []
-
+        
     def get_table_info(self) -> Dict[str, Any]:
         """Get information about available tables and their schemas"""
         try:

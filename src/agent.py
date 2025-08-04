@@ -2,6 +2,7 @@ import logging
 import yaml
 import re
 import os
+import pandas as pd
 from typing import List, Dict, Any
 from langchain.agents import initialize_agent, AgentType
 from langchain.tools import Tool
@@ -67,25 +68,70 @@ class RNAseqAgent:
         """Create tools for the agent"""
 
         def sql_query_tool(query: str) -> str:
-            """Execute SQL query against RNAseq database"""
+            """Execute SQL query against RNAseq database with schema validation"""
             logger.info(f"[SQL_TOOL] Executing query: {query}")
 
             try:
+                # First attempt to execute the query
                 result = self.db.execute_query(query)
 
                 if "error" in result:
                     logger.error(f"[SQL_TOOL] Database error: {result['error']}")
                     self.context_state["last_query_successful"] = False
-                    return f"Error: {result['error']}"
+                    
+                    # Provide detailed error information with schema context
+                    error_msg = f"Query failed: {result['error']}\n\n"
+                    
+                    # If table doesn't exist, show available tables
+                    if "no such table" in result["error"].lower():
+                        try:
+                            available_tables = self.db.get_table_names()
+                            if available_tables:
+                                error_msg += f"Available tables: {', '.join(available_tables)}\n"
+                                error_msg += "Use the Database_Schema tool to see table structures before querying.\n"
+                            else:
+                                error_msg += "Could not retrieve available tables.\n"
+                        except Exception as e:
+                            logger.warning(f"[SQL_TOOL] Could not get table names: {e}")
+                            error_msg += "Could not retrieve available tables.\n"
+                    
+                    # If column doesn't exist, try to show available columns for the table
+                    elif "no such column" in result["error"].lower():
+                        try:
+                            # Extract table name from query (basic parsing)
+                            import re
+                            table_match = re.search(r'FROM\s+(\w+)', query, re.IGNORECASE)
+                            if table_match:
+                                table_name = table_match.group(1)
+                                
+                                # Get schema info for this specific table
+                                schema_info = self.db.get_table_info()
+                                if "tables" in schema_info and table_name in schema_info["tables"]:
+                                    columns = [col["name"] for col in schema_info["tables"][table_name]["columns"]]
+                                    error_msg += f"Available columns in table '{table_name}': {', '.join(columns)}\n"
+                                else:
+                                    error_msg += f"Could not get column information for table '{table_name}'.\n"
+                            
+                            error_msg += "Use the Database_Schema tool to see exact column names and types.\n"
+                            
+                        except Exception as e:
+                            logger.warning(f"[SQL_TOOL] Could not analyze column error: {e}")
+                            error_msg += "Use the Database_Schema tool to see available columns.\n"
+                    
+                    # For any database error, suggest using schema tools
+                    error_msg += "\nRECOMMENDATION: Use Database_Schema tool first to understand the data structure, "
+                    error_msg += "then use Sample_Column_Values tool to see actual data values before writing queries."
+                    
+                    return error_msg
 
-                # Store data for plotting
+                # Query executed successfully
                 if result["row_count"] > 0:
                     self.context_state["last_query_successful"] = True
                     self.context_state["current_data_context"] = {
-                            "query": query,
-                            "row_count": result["row_count"],
-                            "columns": result["columns"]
-                        }
+                        "query": query,
+                        "row_count": result["row_count"],
+                        "columns": result["columns"]
+                    }
                     store_result = self.plotter.store_query_data(result["data"], query)
                     logger.info(f"[SQL_TOOL] Data stored for plotting - {result['row_count']} rows, {len(result['columns'])} columns")
                 else:
@@ -94,7 +140,7 @@ class RNAseqAgent:
 
                 # Format result for LLM
                 if result["row_count"] == 0:
-                    return "Query executed successfully but returned no results."
+                    return "Query executed successfully but returned no results. The query syntax was correct but no data matches your criteria."
 
                 # Limit output for large results
                 max_rows = 15
@@ -120,12 +166,18 @@ class RNAseqAgent:
                     output += f"\nNOTE: This data has been stored and is available for plotting if visualization would be helpful."
 
                 return output
-        
+
             except Exception as e:
                 logger.error(f"[SQL_TOOL] Unexpected error: {str(e)}")
                 self.context_state["last_query_successful"] = False
-                return f"Unexpected error executing query: {str(e)}"
-
+                
+                # Provide helpful guidance for unexpected errors too
+                error_msg = f"Unexpected error executing query: {str(e)}\n\n"
+                error_msg += "RECOMMENDATION: Use Database_Schema tool to check table structures "
+                error_msg += "and Sample_Column_Values tool to see actual data before writing queries."
+                
+                return error_msg
+            
         def database_schema_tool(input_str: str) -> str:
             """Get information about database tables and their schemas"""
             logger.info("[SCHEMA_TOOL] Retrieving database schema")
@@ -196,7 +248,7 @@ class RNAseqAgent:
                     output += f"Table: {table_name}\n"
                     
                     try:
-                        df = self.db.run(f"SELECT * FROM {table_name} LIMIT 10;")
+                        df = self.db.execute(f"SELECT * FROM {table_name} LIMIT 10;")
                         if isinstance(df, list):
                             df = pd.DataFrame(df)
                         
