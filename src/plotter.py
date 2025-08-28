@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 import seaborn as sns
+import statsmodels.api as sm
 from datetime import datetime
 import utils 
 
@@ -23,11 +24,11 @@ class RNAseqPlotter:
         self.last_query_data = None  # Store data from last query for plotting
         os.makedirs(output_dir, exist_ok=True)
         pio.templates.default = "plotly_white" # Set default plotly theme
-        instructions_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'plot_instructions.yaml')
+        prompts_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'prompts.yaml')
         
         # Load plotting instructions
-        with open(instructions_path, 'r') as file:
-            self.plot_instructions = yaml.safe_load(file)
+        with open(prompts_path, 'r') as file:
+            self.plot_instructions = yaml.safe_load(file)["plot_instructions"]
 
     def store_query_data(self, data: List[Dict], query_info: str = ""):
         """Store data from SQL query for potential plotting"""
@@ -70,25 +71,15 @@ class RNAseqPlotter:
             - Return just the Python code, no explanations
             - Choose appropriate columns based on the data type and plot type
             
-            Follow these instructions for the {plot_type} plot specifically: {self.plot_instructions.get(plot_type, {}).get('instructions', '')}
+            Follow these instructions for the {plot_type} plot specifically: {self.plot_instructions.get(plot_type, '')}
             """
             
-            # DEBUG: Print the code prompt sent to LLM
-            # print("="*50)
-            # print("CODE PROMPT:")
-            # print(code_prompt)
-            # print("="*50)
+            logger.info(f"[PLOTTER] Code prompt:\n{code_prompt}")
             
             # Get code from LLM
             generated_code = self.llm.invoke(code_prompt).content
-            
-            # DEBUG: Print what the LLM generated
-            # print("="*50)
-            # print("GENERATED CODE:")
-            # print(repr(generated_code))  # Shows exact string including newlines
-            # print("="*50)
-        
             cleaned_code = utils.clean_generated_code(generated_code)
+            logger.info(f"[PLOTTER] Generated code (cleaned):\n{cleaned_code}")
             
             # Execute the generated code
             exec_globals = {

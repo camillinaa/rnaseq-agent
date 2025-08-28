@@ -3,6 +3,7 @@ import logging
 import os
 from dotenv import load_dotenv
 from langchain_mistralai import ChatMistralAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from database import RNAseqDatabase
 from plotter import RNAseqPlotter
 from agent import RNAseqAgent
@@ -12,13 +13,23 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 def create_agent():
-    model_name = os.getenv("MODEL_NAME")
-    api_key = os.getenv("MISTRAL_API_KEY")
     db_path = "data/rnaseq.db"
-    llm = ChatMistralAI(model=model_name, api_key=api_key, temperature=0, max_retries=10)
+    code_llm = ChatGoogleGenerativeAI(
+        model=os.getenv("CODE_MODEL_NAME"), 
+        api_key=os.getenv("GEMINI_API_KEY"), 
+        temperature=0, 
+        max_retries=10)
+    response_llm = ChatGoogleGenerativeAI(
+        model=os.getenv("RESPONSE_MODEL_NAME"), 
+        api_key=os.getenv("GEMINI_API_KEY"),
+        temperature=0.1,
+        max_tokens=None,
+        timeout=None,
+        max_retries=2
+    )
     db = RNAseqDatabase(db_path)
-    plotter = RNAseqPlotter(llm)
-    return RNAseqAgent(db, plotter, llm)
+    plotter = RNAseqPlotter(code_llm)
+    return RNAseqAgent(db, plotter, code_llm, response_llm)
 
 def run_cli():
     agent = create_agent()

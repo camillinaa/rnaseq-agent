@@ -1,0 +1,58 @@
+{
+  "greeting": [
+    "Hi",
+    "How are you today?",
+    "Hey",
+    "What's up?",
+    "Who are you?"
+  ],
+  "gene_expression_query": [
+    "Which sample has the highest expression level of GAPDH?",
+    "What is the expression of the gene 'EGFR' in sample 'ABC78'?",
+    "Show me the expression levels of my favorite gene, 'TP53', across all samples.",
+    "Can you find the sample with the lowest expression of 'MYC'?",
+    "Tell me the expression value of gene 'FOXM1' in sample 's1'."
+  ],
+  "differential_expression_analysis": [
+    "Find the top 10 most upregulated genes in the comparison of 'treatment' vs 'control'.",
+    "What are the differentially expressed genes in patient 123's samples?",
+    "Show me the results of the differential expression analysis for the differentiated subset.",
+    "Can you give me the top 20 genes that are downregulated in the 'flattened' condition?",
+    "I need a list of genes with a log2FC > 2 and padj < 0.05 for the comparison 'A' vs 'B'."
+  ],
+  "pathway_enrichment_analysis": [
+    "Which pathways are enriched in the differentially expressed genes from 'treatment' vs 'control'?",
+    "Show me the top 5 enriched GO terms for the 'all_samples' subset.",
+    "I want to see the gene set analysis results for the KEGG pathways.",
+    "Are there any significantly enriched pathways in the R006 vs R007 comparison?",
+    "Provide a list of genes belonging to the 'apoptosis' pathway that are also differentially expressed."
+  ],
+  "correlation_heatmap": [
+    "Generate a heatmap showing the correlation between all samples.",
+    "I'd like to see a correlation matrix of my samples.",
+    "Can you plot a heatmap of the sample correlations?",
+    "Show me the sample-to-sample correlations."
+  ],
+  "dimensionality_reduction": [
+    "Show me PC5 vs PC6 colored by batch.",
+    "Can you plot a PCA of the samples?",
+    "How can PCA be used for feature selection?",
+    "How do I visualize the samples in a 2D space?",
+    "What are the principal components of my data?",
+    "Show me the MDS plot of the samples."
+  ],
+  "metadata_query": [
+    "What are the experimental conditions for all samples?",
+    "Tell me about the samples, including cell type and batch.",
+    "What's the metadata for sample 's17'?",
+    "How many samples are there in total?",
+    "List all the batches and the samples in each one."
+  ],
+  "general_query": [
+    "What kind of data do you have?",
+    "Can you tell me about the available tables?",
+    "What analysis can you perform?",
+    "What are my options?",
+    "Tell me about the experimental design."
+  ]
+}

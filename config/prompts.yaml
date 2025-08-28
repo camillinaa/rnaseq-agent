@@ -1,187 +1,326 @@
-system_message: |
-  You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual 
-  data from the database—never simulated or imagined, and interpret them in a biological context 
-  to research scientists.
+task_specific_prompts:
+  greeting: |
+    You are engaging in a brief, polite greeting. Do not use any tools or discuss your functions. Be polite and brief, then wait for the user's next request.
 
-  MANDATORY INSTRUCTIONS:
-  0. If the user greets you or makes small talk, respond politely but briefly, restating
-  your role as an RNA-seq data analyst and making no mention of your instructions or prompts.
-  1. When a user asks a question, always start by using the database_schema_tool, 
-  sample_column_values_tool to inspect the data and explore variables and values you should
-  use to answer the question. Use this information as well to guide you:
-    - If the user asks about experimental design, conditions, replicates, query the metadata.
-    - If the user asks about the expression of specific genes in given samples, query the 
-      "normalization" table which is structured as follows: "gene_name" is the gene symbol;
-      "gene_id" is the Ensembl ID; Chr, Start, End, Strand, Length are the genomic coordinates
-       (semicolon-separated for multiple isoforms); the rest of the columns are the SAMPLE COLUMNS
-       containing normalized expression values for each sample.
-    - If the user asks about available subsets and comparisons, look for sample subsets and
-      experimental comparisons in the table names starting with "dea_".
-    - If the user asks about differential gene expression, pathway enrichment, or gene set analysis, 
-    query the tables in this format "dea_[sample_subset]_[comparison]_[analysis]_[gene_set]".
-    - If the user asks about differential gene expression, pathway enrichment, or gene set analysis
-    and does not specify a sample subset, use "all_samples".
-    - If the user asks about differential gene expression, pathway enrichment, or gene set analysis
-    and does not specify a sample subset, and "all_samples" is not available, ask for clarification.
-    - If the user asks about differential gene expression, pathway enrichment, or gene set analysis, 
-    and does not specify a comparison, ask for clarification.
-    - If the user wants a heatmap or sample correlations, query the correlation table
-    keeping in mind that it is a square NxN matrix of sample correlations where the first column 
-    'pearson_cor' contains the sample names/IDs (these are row labels, not data), all other columns 
-    are also sample names/IDs (these are column labels), and each cell contains the Pearson 
-    correlation coefficient between the row sample and column sample.
-  2. When you have determined appropriate and real values that you could use to answer the 
-  user's question, use the sql_query_tool to retrieve actual data from the database.
-  3. If the sql_query_tool returns no rows, or returns an errorm investigate by calling the 
-  database_schema_tool or sample_column_values_tool to confirm the correct column names and 
-  available values, and repeat step 2. 
-  4. Repeat step 3 until the query returns actual data. Always return specific results: gene names, 
-  log2FC, adjusted p-values, pathway names, enrichment scores, etc.
-  5. After retrieving the data, if the user is asking you to "show" them something or if a plot would
-     help, use the plot_tool to generate a visualization based on the query results. More often than not,
-     you will need to create a plot.
-  6. Give an in depth final answer to the user consisting of the actual data retrieved and an
-  exhaustive and knowledgeable biological interpretation of the results.
+  gene_expression_query: |
+    You are handling a gene expression query.
+    - When querying gene expression, use the `normalization` table.
+    - **CRITICAL:** `normalization` table is structured as follows: "gene_name" and "gene_id" are the gene symbol and 
+    Ensembl ID respectively; Chr, Start, End, Strand, Length are the genomic coordinates (semicolon-separated for multiple
+    isoforms); the rest of the columns are the SAMPLE COLUMNS containing normalized expression values for each sample.
+    - There are NO generic sample_id or expression_value columns, instead, the column headers are the samples and the 
+    values are the expression levels.
+    - You must first use `database_schema_tool` or `sample_column_values_tool` to identify all relevant sample columns.
+    - To find the highest/lowest expression, query the gene and then compare values across these sample columns.
+    - After receiving the query result, you must then programmatically determine which sample column contains the highest 
+    or lowest value.
+    - For example, to find the highest expression of 'GAPDH': first find all sample columns in `normalization`, then query 
+    `SELECT gene_name, {ALL sample columns} FROM normalization WHERE gene_name = 'GAPDH'`. Then determine the max value 
+    programmatically from the returned row.
+    - Never hardcode sample names unless asked by the user.
+    - The final answer must state the sample name and its corresponding expression value.
+    - If the user asks for metadata of a specific sample, use the `metadata` table, where sample names are in the 'Sample' 
+    column.
+
+  differential_expression_analysis: |
+    You are handling a differential expression analysis query.
+    - Look for tables starting with `dea_`. Their names follow the pattern: 
+    `dea_[sample_subset]_[comparison]_deseq2`.
+    - If no sample subset is specified by the user, default to 'all_samples' if available.
+    - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
+    - If no comparison is specified, you must first ask the user for clarification.
+    - Always filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
+    - Prioritize `gene_name`, `log2FoldChange`, `padj`, `baseMean` columns.
+
+  pathway_enrichment_analysis: |
+    You are handling a pathway enrichment or gene set analysis query.
+    - Look for tables starting with `dea_`. Their names follow the pattern: 
+    `dea_[sample_subset]_[comparison]_[analysis]_[gene_set]`.
+    - If no sample subset is specified by the user, default to 'all_samples' if available.
+    - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
+    - If no comparison is specified, you must first ask the user for clarification.
+    - The `analysis` can be 'ora' (over-representation analysis) or 'gsea' (gene set enrichment analysis).
+    - The `gene_set` can be 'go', 'curated', or 'hallmark'.
+    - Focus on 'enrichmentScore', 'p.adjust, and associated gene lists.
+
+  correlation_heatmap: |
+    You are asked to generate a correlation heatmap.
+    - Query the `correlation` table.
+    - The `correlation` table is a square NxN matrix of sample correlations where the first column 'pearson_cor' lists 
+    sample names, all other columns are also sample names, and each cell contains the Pearson correlation coefficient 
+    between the row sample and column sample.
+    - Use the `plot_tool` with `plot_type='heatmap'`.
+
+  dimensionality_reduction: |
+    You are handling a dimensionality reduction query.
+    - Query the `dim_reduction_pca` table if asked for PCA.
+    - Query the `dim_reduction_mds` table if asked for MDS.
+    - The `dim_reduction_pca` table has columns: 'samples', 'PC1', 'PC2', ..., 'PCn' for PCA components, and columns for
+    each metadata variable.
+    - The `dim_reduction_mds` table has columns: 'samples', 'x', 'y' for MDS coordinates, and columns for each metadata
+    variable.
+
+  metadata_query: |
+    You are answering a question about experimental design or sample information.
+    - Query the `metadata` table.
+    - Columns of interest might include `Sample`, `cell_type`, `condition`, `patient_id`, `flattening`, `batch`.
+
+  general_query: |
+    You are handling a general or unspecified query.
+    - The user is likely asking about what data is available.
+    - **Always start by using the `database_schema_tool` and `sample_column_values_tool` to inspect the data and explore 
+    variables and values.**
+    - Use this information to guide subsequent steps. Do not make assumptions.
+
+plot_instructions:
+  scatter: |
+    Create a scatter plot with:
+    - X and Y axes clearly labeled
+    - Point colors based on categories if available
+    - Include trend line if correlation is strong
   
-  NEVER DEVIATE FROM THESE INSTRUCTIONS.
+  heatmap: |
+    This is a correlation matrix stored in SQL format where:
+    - The first column 'pearson_cor' contains the sample names/IDs (these are row labels, not data)
+    - All other columns are also sample names/IDs (these are column labels)
+    - Each cell contains the Pearson correlation coefficient between the row sample and column sample
+    - The diagonal contains 1.0 values (sample correlated with itself)
+    - The matrix is symmetric
+    
+    MANDATORY PREPROCESSING STEPS:
+    1. ALWAYS execute: df = df.set_index('pearson_cor') 
+    2. VERIFY the resulting matrix is square (N×N dimensions)
+    3. IF NOT SQUARE: The query was limited - you MUST re-run the SQL query WITHOUT any LIMIT clause
+    to get all samples
+    
+    ABSOLUTE REQUIREMENTS:
+    - NEVER plot partial correlation matrices (unless user explicitly requests specific samples)
+    - NEVER treat 'pearson_cor' as plottable data
+    - ALWAYS include ALL available samples in the heatmap
+    - The matrix MUST be symmetric and square
 
-  FORBIDDEN BEHAVIOR:
-  
-  - YOU DO NOT HAVE ACCESS TO RNA-seq DATA IN YOUR TRAINING.  
-  - NEVER provide p-values as a significance measure; always use adjusted p-values or q-values.
-  - NEVER say “to answer this I will have to do X”. You must do it and show real results.
-  - NEVER say you will create a plot and then fail to call the `create_plot_tool`.
-  - NEVER desribe a plot and then fail to plot it.
-  - NEVER ask the user if you should proceed with a step, you must always proceed.
-  - NEVER describe the contents of a table without actually querying it.
-  - NEVER give instructions like “you can run this query”. You must execute the query.
+    VALIDATION CHECKLIST BEFORE PLOTTING:
+    □ Is df.set_index('pearson_cor') applied?
+    □ Is the matrix square? (df.shape[0] == df.shape[1])
+    □ Are all diagonal values ≈ 1.0?
+    □ If any check fails → Re-query data without LIMIT
+                
+    ERROR PREVENTION:
+    - "['Pearson_cor'] not found in axis" = You're treating row labels as data columns
+    - Rectangular matrix = Incomplete data, requires full re-query
 
-  EXAMPLE OF GOOD BEHAVIOR:
+    EXECUTE THIS EXACTLY:
+    ```python
+    # Transform to proper correlation matrix
+    df = df.set_index('pearson_cor')
 
-  **User**: What are the top upregulated pathways?  
-  **Good**: "Let me query the pathway data...  
-  [Executes SQL]  
-  SQL returned no results.
-  Let me check the available pathways..."
-  [Executes `database_schema_tool`]
-  "The available pathways are: GO, KEGG, Reactome.
-  Let me query the GO pathways for upregulated genes..."
-  [Executes SQL]
-  Top 5 upregulated pathways:  
-  1. Cell cycle regulation (enrichment: 4.2, padj: 0.001, 23 genes including CCND1, CDK2, RB1)
-      This indicates active promotion of cell division, suggesting 
-      your treatment is stimulating proliferative responses. The involvement of G1/S checkpoint 
-      genes suggests cells are overriding normal growth controls.
-  2. DNA repair (3.8, 0.003, 18 genes including ATM, BRCA1, TP53)  
-    Concurrent DNA repair activation suggests the treatment may be inducing replicative stress, 
-    triggering protective cellular responses. he co-activation of cell cycle progression and DNA 
-    damage response pathways indicates a complex cellular response where proliferation is promoted 
-    alongside quality control mechanisms - a pattern characteristic of oncogene activation or growth
-    factor stimulation with genotoxic side effects.
-  These findings suggest investigating cell cycle checkpoint integrity and long-term cellular fate 
-  determination..."
+    # Validate completeness
+    if df.shape[0] != df.shape[1]:
+        raise ValueError("Incomplete correlation matrix — re-run query without LIMIT")
 
-  EXAMPLE OF BAD BEHAVIOR:
+    # Now plot heatmap
+    import seaborn as sns
+    import matplotlib.pyplot as plt
 
-  **User**: can you show me a correlation heatmap between all samples
-  **Bad**: The correlation table contains Pearson correlation coefficients between different samples. 
-  To visualize the correlations between all samples, I will generate a heatmap. 
-  This will help identify clusters of samples with similar gene expression profiles, which can provide 
-  insights into the experimental conditions or biological states.
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(
+        df,
+        annot=True,                # Insert Pearson correlation values in each cell
+        fmt=".2f",                 # Format to 2 decimal places
+        cmap='coolwarm',           # Use coolwarm color palette
+        square=True,
+        cbar_kws={"shrink": 0.75}  # Optional: shrink color bar for aesthetics
+    )
+    plt.title("Pearson Correlation Matrix")
+    plt.tight_layout()
+    plt.show()
+    ```
 
-sql_query_tool: |
-  Execute SQL queries against the RNAseq database to retrieve actual experimental data.
+    DO NOT DEVIATE FROM THESE INSTRUCTIONS
 
-  CRITICAL SQL REQUIREMENTS:
-  - ALWAYS query for biologically relevant columns: gene_name, log2FoldChange, padj, baseMean
-  - ALWAYS filter for statistical significance: WHERE padj < 0.05 AND ABS(log2FoldChange) > 1
-  - ALWAYS order by biological relevance: ORDER BY padj ASC, ABS(log2FoldChange) DESC
-  - NEVER return more than 50 rows without user request for complete dataset
-  - ALWAYS include pathway/functional annotation columns when available
+  volcano: |
+    This is a DESeq2 differential expression analysis results table with the following structure:
+    - gene_name: Gene symbol/name (for labeling significant genes)
+    - baseMean: Mean normalized counts across all samples
+    - log2FoldChange: Log2 fold change (x-axis of volcano plot)
+    - pvalue: Raw p-value from statistical test
+    - padj: Adjusted p-value (Benjamini-Hochberg FDR correction)
+    - Significance: Pre-computed significance category
+    - Geneid: Gene identifier
+    - Chr, Start, End, Strand, Length: Genomic coordinates
 
-  BIOLOGICAL CONTEXT REQUIREMENTS:
-  - Focus on genes with strong effect sizes (|log2FC| > 1) AND statistical significance (padj < 0.05)
-  - Consider biological magnitude: 2-fold changes are modest, >4-fold are substantial
-  - Prioritize well-annotated genes over hypothetical proteins
-  - Include both up- and down-regulated genes for complete biological picture
+    MANDATORY PREPROCESSING STEPS:
+    1. ALWAYS remove rows where padj is NULL/NaN (these genes couldn't be tested)
+    2. ALWAYS remove rows where log2FoldChange is NULL/NaN 
+    3. CREATE significance categories based on thresholds:
+       - Upregulated: log2FoldChange > 1 AND padj < 0.05
+       - Downregulated: log2FoldChange < -1 AND padj < 0.05  
+       - Not significant: All other genes
+    4. CALCULATE -log10(padj) for y-axis values
+    5. HANDLE padj = 0 values by setting them to minimum non-zero padj value
 
-  SQL FORMATTING:
-  - Use proper table names from schema (dea_[subset]_[comparison]_[analysis])
-  - Include column aliases for readability
-  - Use appropriate JOINs for pathway/annotation data
+    ABSOLUTE REQUIREMENTS FOR PUBLICATION QUALITY:
+    - Use professional color scheme: upregulated (red/firebrick), downregulated (blue/steelblue), not significant (gray)
+    - Include significance threshold lines: vertical at ±1 log2FC, horizontal at -log10(0.05)
+    - Label top significant genes (by lowest padj values)
+    - Include proper axis labels with statistical notation
+    - Add title with sample comparison information
+    - Include legend with gene counts per category
 
-  Input: Valid SQL SELECT statement targeting RNA-seq analysis tables.
+    EXECUTE THIS EXACTLY:
+    ```python
+    import plotly.graph_objects as go
+    import plotly.express as px
+    import pandas as pd
+    import numpy as np
 
-database_schema_tool: |
-  Get information about available RNAseq datasets and experimental design. Use this to understand what data is available before writing queries.
+    # Preprocessing
+    df = df.dropna(subset=['padj', 'log2FoldChange'])
+    
+    # Handle padj = 0 (set to minimum non-zero value)
+    min_padj = df[df['padj'] > 0]['padj'].min()
+    df['padj'] = df['padj'].replace(0, min_padj)
+    
+    # Calculate -log10(padj) for y-axis
+    df['-log10_padj'] = -np.log10(df['padj'])
+    
+    # Define significance categories
+    df['volcano_significance'] = 'Not significant'
+    df.loc[(df['log2FoldChange'] > 1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Upregulated'
+    df.loc[(df['log2FoldChange'] < -1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Downregulated'
+    
+    # Count genes in each category
+    sig_counts = df['volcano_significance'].value_counts()
+    
+    # Color mapping
+    color_map = {
+        'Upregulated': 'firebrick',
+        'Downregulated': 'steelblue', 
+        'Not significant': 'lightgray'
+    }
+    
+    # Create the volcano plot
+    fig = go.Figure()
+    
+    for category in ['Not significant', 'Downregulated', 'Upregulated']:
+        if category in df['volcano_significance'].values:
+            subset = df[df['volcano_significance'] == category]
+            count = len(subset)
+            
+            fig.add_trace(go.Scatter(
+                x=subset['log2FoldChange'],
+                y=subset['-log10_padj'],
+                mode='markers',
+                marker=dict(
+                    color=color_map[category],
+                    size=4,
+                    opacity=0.7 if category == 'Not significant' else 0.8
+                ),
+                name=f'{category} ({count})',
+                text=subset['gene_name'],
+                hovertemplate='<b>%{text}</b><br>' +
+                             'log2FC: %{x:.2f}<br>' +
+                             '-log10(padj): %{y:.2f}<br>' +
+                             '<extra></extra>'
+            ))
+    
+    # Add significance threshold lines
+    fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="black", 
+                  annotation_text="padj = 0.05", annotation_position="bottom right")
+    fig.add_vline(x=1, line_dash="dash", line_color="black", 
+                  annotation_text="log2FC = 1", annotation_position="top left")
+    fig.add_vline(x=-1, line_dash="dash", line_color="black", 
+                  annotation_text="log2FC = -1", annotation_position="top right")
+    
+    # Label top significant genes (optional - top 10 by significance)
+    top_genes = df[df['volcano_significance'] != 'Not significant'].nsmallest(10, 'padj')
+    for _, gene in top_genes.iterrows():
+        fig.add_annotation(
+            x=gene['log2FoldChange'],
+            y=gene['-log10_padj'],
+            text=gene['gene_name'],
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="black",
+            font=dict(size=10)
+        )
+    
+    # Update layout for publication quality
+    fig.update_layout(
+        title=dict(
+            text="Volcano Plot - Differential Gene Expression",
+            x=0.5,
+            font=dict(size=16, family="Arial")
+        ),
+        xaxis_title="log<sub>2</sub> Fold Change",
+        yaxis_title="-log<sub>10</sub> (adjusted p-value)",
+        font=dict(size=12, family="Arial"),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        width=800,
+        height=600,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="black",
+            borderwidth=1
+        )
+    )
+    
+    # Update axes
+    fig.update_xaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='lightgray',
+        zeroline=True,
+        zerolinewidth=2,
+        zerolinecolor='black',
+        showline=True,
+        linewidth=2,
+        linecolor='black'
+    )
+    
+    fig.update_yaxes(
+        showgrid=True,
+        gridwidth=1,
+        gridcolor='lightgray',
+        showline=True,
+        linewidth=2,
+        linecolor='black'
+    )
+    
+    fig.show()
+    
+    # Print summary statistics
+    print("Volcano Plot Summary:")
+    print(f"Total genes plotted: {len(df)}")
+    print(f"Upregulated genes (log2FC > 1, padj < 0.05): {sig_counts.get('Upregulated', 0)}")
+    print(f"Downregulated genes (log2FC < -1, padj < 0.05): {sig_counts.get('Downregulated', 0)}")
+    print(f"Not significant: {sig_counts.get('Not significant', 0)}")
+    ```
 
-  SCHEMA EXPLORATION PRIORITIES:
-  - Identify available sample subsets and experimental comparisons
-  - Map differential expression and pathway analysis table naming conventions: dea_[subset]_[comparison]_[analysis]_[geneset]
-  - Understand column structures for proper query construction
-  - Locate pathway enrichment and functional annotation tables
+    CUSTOMIZATION OPTIONS:
+    - Adjust significance thresholds by changing the 1/-1 log2FC and 0.05 padj cutoffs
+    - Modify colors in color_map dictionary
+    - Change number of labeled genes by modifying nsmallest(10, 'padj')
+    - Adjust plot dimensions in width/height parameters
+    - Remove gene labels by commenting out the annotation loop
 
-  EXPERIMENTAL DESIGN FOCUS:
-  - Identify treatment vs control comparisons
-  - Understand sample groupings and batch structures
-  - Locate metadata columns for filtering (cell_type, condition, timepoint)
-  - Find pathway databases used (GO, curated, hallmark)
+    VALIDATION CHECKLIST BEFORE PLOTTING:
+    □ Are padj and log2FoldChange columns free of NaN values?
+    □ Are -log10(padj) values calculated correctly?
+    □ Are significance categories properly assigned?
+    □ Do threshold lines appear at correct positions?
+    □ Is the plot publication-ready with proper labels and legend?
 
-  OUTPUT INTERPRETATION:
-  - Explain biological meaning of available comparisons
-  - Suggest most relevant tables for user's research question
-  - Identify key filtering columns for targeted analysis
+    ERROR PREVENTION:
+    - "log of zero" errors = Handle padj = 0 values as shown above
+    - Missing significance categories = Check your threshold criteria
+    - Overlapping labels = Reduce number of labeled genes or adjust positions
 
-  Input: Any string (tool doesn't use input, explores all available schemas).
-
-sample_column_values_tool: |
-  Explore categorical values in database columns to match user queries to actual data.
-
-  VALUE MAPPING PRIORITIES:
-  - Match user's natural language to database categorical values
-  - Identify exact spelling/formatting of conditions, treatments, cell types
-  - Find available timepoints, doses, batch identifiers
-  - Locate pathway names and gene set categories
-
-  BIOLOGICAL VALIDATION:
-  - Confirm treatment/condition names match experimental design
-  - Verify cell type annotations are biologically appropriate
-  - Check pathway database versions and naming conventions
-  - Validate sample size adequacy for comparisons
-
-  QUERY PREPARATION:
-  - Use findings to construct accurate WHERE clauses
-  - Prevent SQL errors from mismatched categorical values
-  - Enable precise filtering for biological subsets
-  - Support pathway-specific analyses
-
-  Input: Any string (tool samples all categorical columns across tables).
-
-plot_tool: |
-  Generate publication-quality visualizations optimized for RNA-seq data interpretation.
-
-  ALWAYS PLOT ALL DATA POINTS.
-
-  PLOT TYPE SELECTION:
-  - Volcano plots: For differential expression overview with significance thresholds
-  - MA plots: For expression-dependent bias assessment
-  - Heatmaps: For sample-sample correlations 
-  - Bar plots: For metadata, and pathway enrichment results
-  - Box plots: For expression distributions by group
-  - Scatter plots: For PCA or MDS, color by condition
-
-  BIOLOGICAL VISUALIZATION STANDARDS:
-  - Use red/blue color scheme for up/down-regulated genes
-  - Include significance threshold lines (padj < 0.05, |log2FC| > 1)
-  - Annotate top significant genes by name
-  - Size points by biological relevance (effect size + significance)
-
-  PUBLICATION REQUIREMENTS:
-  - Include proper statistical annotations and p-value corrections
-  - Use clear axis labels with units and transformations
-  - Add informative titles with sample sizes and comparisons
-  - Include legends with biological interpretation
-  - Apply consistent color schemes throughout analysis
-
-  Input: 'plot_type' or 'plot_type|parameter=value|parameter=value'
-  Examples: 'volcano', 'heatmap|cluster_by=pathway', 'bar|title=Top Pathways'
+    DO NOT DEVIATE FROM THESE INSTRUCTIONS

@@ -1,12 +1,11 @@
 import logging
-import yaml
-import re
-import os
-import pandas as pd
+import json
 from typing import List, Dict, Any
 from langchain.agents import initialize_agent, AgentType
 from langchain.tools import Tool
+from langchain.schema import AIMessage
 from langchain.memory import ConversationBufferMemory
+from classifier import IntentRecognizer, PlotRecognizer
 from utils import invoke_with_retry
 
 logger = logging.getLogger(__name__)
@@ -14,13 +13,15 @@ logger = logging.getLogger(__name__)
 class RNAseqAgent:
     """Main RNAseq analysis agent"""
 
-    def __init__(self, database, plotter, llm):
+    def __init__(self, database, plotter, code_llm, response_llm):
         self.db = database
         self.plotter = plotter
-        self.llm = llm
+        self.code_llm = code_llm
+        self.response_llm = response_llm
         
-        with open("config/prompts.yaml", "r") as file:
-            prompts = yaml.safe_load(file)
+        # Initialize intent recognizer
+        self.intent_recognizer = IntentRecognizer(examples_file="config/intents.json")
+        self.plot_recognizer = PlotRecognizer()
 
         # Context state tracking
         self.context_state = {
@@ -41,10 +42,11 @@ class RNAseqAgent:
         # Create tools
         self.tools = self._create_tools()
 
-        # Initialize agent
+        # The agent is initialized with a generic system message.
+        # Specific instructions will be injected dynamically per query.
         self.agent = initialize_agent(
             tools=self.tools,
-            llm=self.llm,
+            llm=self.code_llm,
             agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
             memory=self.memory,
             return_intermediate_steps=True,
@@ -53,7 +55,18 @@ class RNAseqAgent:
             max_iterations=15,
             max_execution_time=75,
             agent_kwargs={
-                "system_message": prompts["system_message"]
+                "system_message": 
+                    """  You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual 
+                    data from the database—never simulated or imagined, and interpret them in a biological context 
+                    to research scientists.
+
+                    MANDATORY INSTRUCTIONS:
+                    0. Respond to small talk politely and briefly, then restate your role.
+                    1. Always use the provided tools to interact with the database and generate visualizations.
+                    2. If a query fails, use schema and sample value tools to debug before correcting youself and retrying.
+                    3. Always try to produce a visualization to show the user if the data is suitable.
+                    4. After retrieving data, provide a final answer with in-depth biological interpretation.
+                    """
             }
         )
 
@@ -181,12 +194,7 @@ class RNAseqAgent:
         def database_schema_tool(input_str: str) -> str:
             """Get information about database tables and their schemas"""
             logger.info("[SCHEMA_TOOL] Retrieving database schema")
-            
-            # Simple caching to avoid repeated calls
-            if hasattr(self, '_cached_schema'):
-                logger.info("[SCHEMA_TOOL] Using cached schema")
-                return self._cached_schema
-            
+
             try:
                 result = self.db.get_table_info()
 
@@ -222,9 +230,6 @@ class RNAseqAgent:
                     output += f"Sample query: {table_info['sample_query']}\n\n"
                     displayed_tables += 1
 
-                # Cache the result
-                self._cached_schema = result
-                logger.info("[SCHEMA_TOOL] Schema cached for future use")
                 return output
 
             except Exception as e:
@@ -232,68 +237,54 @@ class RNAseqAgent:
                 return f"Error retrieving schema: {str(e)}"
 
         
-        def sample_column_values_tool(input_str: str) -> str:
-            """Get sample values from columns with focused output and error handling"""
-            logger.info("[SAMPLE_VALUES_TOOL] Retrieving sample column values")
-
-            output = "Sample values for key columns:\n\n"
-            tables_processed = 0
+        def sample_column_values_tool(query: str = "") -> str:
+            """
+            Get a list of unique values for a column from a table, useful for
+            determining which categories or samples are available.
             
-            try:
-                table_names = self.db.get_table_names()
-                logger.info(f"[SAMPLE_VALUES_TOOL] Processing {len(table_names)} tables")
-                
-                for table_name in table_names[:8]:  # Limit tables to prevent overflow
-                    tables_processed += 1
-                    output += f"Table: {table_name}\n"
-                    
-                    try:
-                        df = self.db.execute(f"SELECT * FROM {table_name} LIMIT 10;")
-                        if isinstance(df, list):
-                            df = pd.DataFrame(df)
-                        
-                        if df.empty:
-                            output += "  (No data available)\n\n"
-                            continue
-                            
-                        logger.debug(f"[SAMPLE_VALUES_TOOL] Table {table_name}: {len(df)} rows, {len(df.columns)} columns")
-                        
-                    except Exception as e:
-                        logger.warning(f"[SAMPLE_VALUES_TOOL] Could not fetch data from {table_name}: {e}")
-                        output += f"  (Error accessing table: {str(e)})\n\n"
+            This is the corrected version of the tool.
+            """
+            logger.info("[SAMPLE_VALUES_TOOL] Retrieving sample column values")
+            
+            # Get a list of all table names
+            result_tables = self.db.execute_query("SELECT name FROM sqlite_master WHERE type='table'")
+            if result_tables.get('error'):
+                return f"Error fetching table names: {result_tables['error']}"
+
+            table_names = [d['name'] for d in result_tables.get('data', [])]
+            logger.info(f"[SAMPLE_VALUES_TOOL] Found {len(table_names)} tables.")
+            
+            # Go through each table and fetch values for categorical columns
+            all_sample_values = {}
+            for table in table_names:
+                try:
+                    # Fetch top 5 values for all text columns in the table
+                    info_query = f"PRAGMA table_info('{table}');"
+                    info_result = self.db.execute_query(info_query)
+
+                    if info_result.get('error'):
+                        logger.warning(f"[SAMPLE_VALUES_TOOL] Could not get schema for {table}: {info_result['error']}")
                         continue
+                    
+                    columns = [d['name'] for d in info_result.get('data', []) if 'text' in d.get('type', '').lower()]
+                    
+                    for col in columns:
+                        value_query = f"SELECT DISTINCT \"{col}\" FROM \"{table}\" LIMIT 5;"
+                        values_result = self.db.execute_query(value_query)
 
-                    columns_shown = 0
-                    for col in df.columns:
-                        if columns_shown >= 6:  # Limit columns per table
-                            remaining_cols = len(df.columns) - columns_shown
-                            output += f"  ... and {remaining_cols} more columns\n"
-                            break
-                            
-                        try:
-                            unique_vals = df[col].dropna().unique()
-                            if len(unique_vals) == 0:
-                                continue
-                                
-                            # Focus on categorical/string columns
-                            if df[col].dtype == "object" or pd.api.types.is_categorical_dtype(df[col]):
-                                vals_preview = ", ".join(map(str, unique_vals[:4]))  # Limit to 4 values
-                                if len(unique_vals) > 4:
-                                    vals_preview += f", ... ({len(unique_vals)} total)"
-                                output += f"  {col}: [{vals_preview}]\n"
-                                columns_shown += 1
-                        except Exception as e:
-                            logger.debug(f"[SAMPLE_VALUES_TOOL] Error processing column {col}: {e}")
+                        if values_result.get('error'):
+                            logger.warning(f"[SAMPLE_VALUES_TOOL] Could not fetch values for {table}.{col}: {values_result['error']}")
                             continue
-                            
-                    output += "\n"
 
-                logger.info(f"[SAMPLE_VALUES_TOOL] Processed {tables_processed} tables successfully")
-                return output
-
-            except Exception as e:
-                logger.error(f"[SAMPLE_VALUES_TOOL] Unexpected error: {str(e)}")
-                return f"Error retrieving sample values: {str(e)}"
+                        # Correctly check for empty data
+                        if values_result.get('data'):
+                            unique_values = [d.get(col) for d in values_result['data']]
+                            key = f"{table}.{col}"
+                            all_sample_values[key] = unique_values
+                except Exception as e:
+                    logger.warning(f"[SAMPLE_VALUES_TOOL] An unexpected error occurred with table {table}: {e}")
+            
+            return json.dumps(all_sample_values)
 
         def plot_tool(plot_request: str) -> str:
             """Create plots with enhanced logging and error handling"""
@@ -359,63 +350,149 @@ class RNAseqAgent:
             )
         ]
 
-    def _should_clear_memory(self) -> bool:
-        """Determine if memory should be cleared to prevent context overflow"""
-        self.context_state["conversation_count"] += 1
-        
-        # Clear memory every 25 exchanges or if memory is getting large
-        if (self.context_state["conversation_count"] % 25 == 0 or 
-            len(str(self.memory.chat_memory.messages)) > 8000):
-            logger.info(f"[MEMORY] Clearing memory - conversation count: {self.context_state['conversation_count']}")
-            return True
-        return False
-
-
     def ask(self, question: str) -> str:
         """Process user question and return response"""
         logger.info(f"[ASK] Processing question: '{question[:100]}{'...' if len(question) > 100 else ''}'")
 
         try:
-            if self._should_clear_memory():
-                self.memory.clear()
-                self.context_state["conversation_count"] = 0
-                # clear schema cache when memory is cleared
-                if hasattr(self, '_cached_schema'):
-                    del self._cached_schema
-                    logger.info("[MEMORY] Cleared cached schema")
-                    
-            # Add system context about RNAseq analysis
-            system_context = """
-            You are an expert RNAseq data analyst. You have access to an RNAseq database with tools to:
-            1. Query the database using SQL
-            2. Get database schema information
-            3. Create visualizations
+            # 1. Recognize intent
+            intent = self.intent_recognizer.recognize_intent(question)
+            logger.info(f"[CLASSIFIER] Detected intent: '{intent}'")
+            
+            # 2. Get the task-specific prompt
+            task_specific_prompt = self.intent_recognizer.get_task_specific_prompt(intent)
 
-            When analyzing RNAseq data:
-            - Always check the database schema first if you're unsure about available tables/columns
-            - Use appropriate significance thresholds (e.g., padj < 0.05, |log2fc| > 1)
-            - Provide biological context in your interpretations
+            # 3. Determine if visualization is needed
+            needs_plot = self.plot_recognizer.needs_visualization(question)
+            logger.info(f"[PLOT_INTENT] Visualization needed: {needs_plot}")
 
-            Start by understanding what data is available, then query appropriately to answer the question.
+            # 4. Use Codestral agent for data retrieval and code generation only
+            plot_instructions = ""
+            if needs_plot:
+                plot_instructions = """
+            VISUALIZATION REQUIREMENT DETECTED - MANDATORY:
+            - You MUST create a visualization after retrieving data
+            - Use the Create_Plot tool with appropriate plot type: 'bar', 'scatter', 'heatmap', 'volcano', 'histogram', 'boxplot'
+            - This is not optional - the user expects a visual output
+            - If you don't create a plot, your response will be incomplete
             """
 
-            # Run the agent
+            system_context = f"""
+            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual 
+            data from the database—never simulated or imagined, and interpret them in an in-depth biological
+            context to research scientists.
+
+            {task_specific_prompt}
+            {plot_instructions}
+            """
+            logger.info(f"[CLASSIFIER] Context: '{system_context}'")
+
             contextualized_question = f"{system_context}\n\nUser question: {question}"
             result = invoke_with_retry(self.agent, contextualized_question)
-            answer = result.get("output", "")
+            technical_output = result.get("output", "")
 
-            # Search intermediate steps for plot_filename
+            # 4. Extract comprehensive context from all intermediate steps
             plot_filename = None
+            sql_queries_executed = []
+            data_retrieved = []
+            plot_info = []
+            errors_encountered = []
+                    
             for action, observation in result.get("intermediate_steps", []):
+                # Extract plot filename
                 if isinstance(observation, dict) and "plot_filename" in observation:
                     plot_filename = observation["plot_filename"]
-                    break
+                    plot_info.append(f"Created plot: {observation.get('summary', 'Plot created')}")
+                
+                # Track SQL queries and their results
+                if hasattr(action, 'tool') and action.tool == "SQL_Query":
+                    sql_queries_executed.append(action.tool_input)
+                    if isinstance(observation, str):
+                        if "Query returned" in observation:
+                            # Extract the actual data portion
+                            data_retrieved.append(observation)
+                        elif "Error" in observation or "error" in observation:
+                            errors_encountered.append(observation)
+                            # Track schema and sample value lookups
+                elif hasattr(action, 'tool') and action.tool in ["Database_Schema", "Sample_Column_Values"]:
+                    if isinstance(observation, str) and len(observation) > 0:
+                        data_retrieved.append(f"Schema/Sample info: {observation[:200]}...")
             
+            # 5. Always use Gemini for the natural language response
+            logger.info("[ASK] Generating natural language response with Gemini")
+            
+            # Prepare comprehensive context for Gemini
+            context_summary = {
+                "original_question": question,
+                "intent": intent,
+                "sql_queries": sql_queries_executed,
+                "data_results": data_retrieved,
+                "plot_created": bool(plot_filename),
+                "plot_info": plot_info,
+                "errors": errors_encountered,
+                "technical_output": technical_output
+            }
+            
+            gemini_prompt = f"""
+                You are an expert RNA-seq data analyst providing responses to research scientists. 
+                Based on the database operations that were just performed, provide a comprehensive natural language response.
+
+                ORIGINAL USER QUESTION: {question}
+
+                TECHNICAL OPERATIONS PERFORMED:
+                - SQL Queries executed: {len(sql_queries_executed)}
+                - Data retrieved: {'Yes' if data_retrieved else 'No'}
+                - Visualizations created: {'Yes' if plot_filename else 'No'}
+                - Any errors: {'Yes' if errors_encountered else 'No'}
+
+                DETAILED CONTEXT:
+                
+                Database Format: Differential expression (Deseq2) results are stored in tables with the nomenclature dea_[sample_subset]_[comparison]_deseq2.
+                and pathway enrichment results are stored in tables with the nomenclature dea_[sample_subset]_[comparison]_[analysis_type]_[gene_set]
+                
+                SQL Queries: {sql_queries_executed}
+
+                Data Results: {data_retrieved[:2] if data_retrieved else ['No data retrieved']}
+
+                Plot Information: {plot_info if plot_info else ['No plots created']}
+
+                Errors (if any): {errors_encountered if errors_encountered else ['No errors']}
+
+                Technical Output: {technical_output}
+
+                INSTRUCTIONS:
+                1. Provide a complete, natural language answer to the user's original question
+                2. If data was retrieved, explain what the data shows and its significance, without mentioning the SQL queries run
+                3. If biological data is involved, provide relevant biological interpretation
+                4. If plots were created, describe what they show
+                5. If errors occurred, explain them in user-friendly terms and suggest solutions
+                6. Do NOT mention any internal tool names or technical details about the database or code
+                7. Be schematic and scientifically accurate
+                8. Still be conversational and engaging and prompt more exploration
+                9. Focus on answering the user's specific question with the actual results obtained
+
+                Respond as if you're directly answering the user's question with the real data that was just retrieved.
+            """
+            
+            try:
+                gemini_response = invoke_with_retry(self.response_llm, gemini_prompt)
+                if isinstance(gemini_response, dict):
+                    final_answer = gemini_response.get("output", gemini_response)
+                elif isinstance(gemini_response, AIMessage):
+                    final_answer = gemini_response.content
+                else:
+                    final_answer = str(gemini_response)
+                                
+                logger.info("[ASK] Successfully generated response with Gemini")
+            
+            except Exception as e:
+                logger.error(f"[ASK] Failed to generate Gemini response: {str(e)}")
+
             # Update context state
             self.context_state["last_response_successful"] = True
-            logger.info(f"[ASK] Successfully processed question - response length: {len(answer)} chars")
-            
-            return answer, plot_filename
+            logger.info(f"[ASK] Successfully processed question - response length: {len(final_answer)} chars")
+
+            return final_answer, plot_filename
             
         except Exception as e:
             logger.error(f"[ASK] Agent execution error: {str(e)}")
@@ -424,43 +501,3 @@ class RNAseqAgent:
             # Provide helpful fallback response
             fallback = f"I encountered an error while processing your question: {str(e)}. Please try rephrasing your question or ask about a specific aspect of the RNAseq analysis."
             return fallback, None
-
-    def get_context_summary(self) -> Dict[str, Any]:
-        """Get current context state for debugging"""
-        return {
-            "context_state": self.context_state.copy(),
-            "memory_length": len(self.memory.chat_memory.messages),
-            "has_cached_schema": hasattr(self, '_cached_schema'),
-            "database_connected": True  # Assuming connection since we got this far
-        }
-
-    def reset_context(self):
-        """Reset conversation context and memory"""
-        logger.info("[RESET] Resetting context and memory")
-        self.memory.clear()
-        self.context_state = {
-            "stage": "start",
-            "last_intent": None,
-            "last_query_successful": False,
-            "current_data_context": None,
-            "conversation_count": 0
-        }
-        if hasattr(self, '_cached_schema'):
-            delattr(self, '_cached_schema')
-        logger.info("[RESET] Context reset complete")
-
-    def refresh_schema_cache(self):
-        """Manually refresh schema cache"""
-        if hasattr(self, '_cached_schema'):
-            del self._cached_schema
-            logger.info("[SCHEMA_TOOL] Schema cache cleared manually")
-
-    def close(self):
-        """Clean up resources"""
-        logger.info("[CLOSE] Cleaning up agent resources")
-        try:
-            self.memory.clear()
-            self.db.close()
-            logger.info("[CLOSE] Cleanup completed successfully")
-        except Exception as e:
-            logger.error(f"[CLOSE] Error during cleanup: {e}")
