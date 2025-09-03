@@ -9,12 +9,13 @@ class IntentRecognizer:
     A simple intent recognition model that uses cosine similarity to classify user questions.
     It provides a focused prompt for the agent based on the recognized intent to prevent "over-prompting".
     """
-    def __init__(self, examples_file: str = "config/intents.json"):
+    def __init__(self, examples_file: str = "config/intents.json", prompts_file: str = "config/prompts.yaml"):
         """
         Initializes the recognizer by loading examples and training a TF-IDF vectorizer.
 
         Args:
             examples_file (str): Path to the JSON file containing example questions.
+            prompts_file (str): Path to the YAML file containing task-specific prompts.
         """
         self.intent_examples = self._load_examples(examples_file)
         self.vectorizer = TfidfVectorizer().fit(self._get_all_examples())
@@ -22,7 +23,7 @@ class IntentRecognizer:
         self.intent_labels = self._get_all_labels()
         
         # Load task-specific prompts from YAML
-        with open("prompts.yaml", "r") as f:
+        with open(prompts_file, "r") as f:
             prompts = yaml.safe_load(f)
         self.task_specific_prompts = prompts["task_specific_prompts"]
 
@@ -89,9 +90,10 @@ class PlotRecognizer:
     def __init__(self):
         self.plot_intent_examples = {
             "needs_plot": [
-                "show me a plot", "create a graph", "visualize the data", "plot the expression",
-                "make a chart", "generate a heatmap", "show correlation plot", "create volcano plot",
-                "plot the distribution", "show me histogram", "compare visually", "display as chart",
+                "show me a plot", "show pca", "plot pc3 vs pc4", "create a graph", 
+                "visualize the data", "plot the expression", "make a chart", "generate a heatmap", 
+                "show correlation plot", "create volcano plot", "plot the distribution", 
+                "show me histogram", "compare visually", "display as chart",
                 "what does the expression pattern look like", "show differences graphically",
                 "plot gene expression across samples", "create scatter plot", "show bar chart",
                 "visualize the results", "generate visualization", "display correlation matrix",
@@ -103,7 +105,9 @@ class PlotRecognizer:
                 "what tables do you have", "hello", "hi there", "thanks", "explain the results",
                 "what does this mean", "describe the analysis", "what is differential expression",
                 "how was this calculated", "what are the statistics", "give me the numbers",
-                "list all samples", "count the genes", "what is the fold change for gene X"
+                "list all samples", "count the genes", "what is the fold change for gene X",
+                "hi", "how are you", "what can you do", "tell me a joke", "what is your name",
+                "what is the weather today", "how old are you", "what is the meaning of life"
             ]
         }
 
@@ -156,7 +160,7 @@ class PlotRecognizer:
 
 if __name__ == '__main__':
     # Example usage:
-    recognizer = IntentRecognizer()
+    recognizer = IntentRecognizer(examples_file="config/intents.json", prompts_file="config/prompts.yaml")
     plotter_recognizer = PlotRecognizer()
 
     # User questions to test

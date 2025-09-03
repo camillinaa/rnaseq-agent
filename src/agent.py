@@ -20,7 +20,7 @@ class RNAseqAgent:
         self.response_llm = response_llm
         
         # Initialize intent recognizer
-        self.intent_recognizer = IntentRecognizer(examples_file="config/intents.json")
+        self.intent_recognizer = IntentRecognizer(examples_file="config/intents.json", prompts_file="config/prompts.yaml")
         self.plot_recognizer = PlotRecognizer()
 
         # Context state tracking
@@ -447,8 +447,11 @@ class RNAseqAgent:
 
                 DETAILED CONTEXT:
                 
-                Database Format: Differential expression (Deseq2) results are stored in tables with the nomenclature dea_[sample_subset]_[comparison]_deseq2.
-                and pathway enrichment results are stored in tables with the nomenclature dea_[sample_subset]_[comparison]_[analysis_type]_[gene_set]
+                Database Format: Differential expression (Deseq2) results are stored in tables with the nomenclature 'dea_[sample_subset]_[comparison]_deseq2'.
+                Pathway enrichment results are stored in tables with the nomenclature 'dea_[sample_subset]_[comparison]_[analysis_type]_[gene_set]'.
+                Normalized counts are stored in the table 'normalization'.
+                Metadata about samples is stored in the table 'metadata'.
+                Correlation matrices are stored in table 'correlation' in square NxN format.
                 
                 SQL Queries: {sql_queries_executed}
 
@@ -487,6 +490,7 @@ class RNAseqAgent:
             
             except Exception as e:
                 logger.error(f"[ASK] Failed to generate Gemini response: {str(e)}")
+                final_answer = "I encountered an error while generating the response. Please try again or rephrase your question."
 
             # Update context state
             self.context_state["last_response_successful"] = True

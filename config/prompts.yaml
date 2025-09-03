@@ -1,6 +1,7 @@
 task_specific_prompts:
   greeting: |
-    You are engaging in a brief, polite greeting. Do not use any tools or discuss your functions. Be polite and brief, then wait for the user's next request.
+    You are engaging in a brief, polite greeting. Do not use any tools or discuss your functions. Be polite and brief, 
+    restating your function, then wait for the user's next request.
 
   gene_expression_query: |
     You are handling a gene expression query.
@@ -26,10 +27,15 @@ task_specific_prompts:
     You are handling a differential expression analysis query.
     - Look for tables starting with `dea_`. Their names follow the pattern: 
     `dea_[sample_subset]_[comparison]_deseq2`.
+    - If asked about what comparisons are available, use `database_schema_tool` to list all `dea_` tables and extract
+    comparison names.
+    - If asked on what subsets the analysis was carries out, use `database_schema_tool` to list all `dea_` tables
+    and extract subset names.
     - If no sample subset is specified by the user, default to 'all_samples' if available.
     - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
     - If no comparison is specified, you must first ask the user for clarification.
-    - Always filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
+    - If visualization is requested as "volcano", retrieve ALL genes without filtering (SELECT * FROM table)
+    - For other queries, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
     - Prioritize `gene_name`, `log2FoldChange`, `padj`, `baseMean` columns.
 
   pathway_enrichment_analysis: |
@@ -73,254 +79,343 @@ task_specific_prompts:
     - Use this information to guide subsequent steps. Do not make assumptions.
 
 plot_instructions:
-  scatter: |
-    Create a scatter plot with:
-    - X and Y axes clearly labeled
-    - Point colors based on categories if available
-    - Include trend line if correlation is strong
+  scatter: 
+    template: |
+      import plotly.express as px
+      fig = px.scatter(df, x='{x_column}', y='{y_column}', 
+                        color='{color_column}' if '{color_column}' != 'None' else None,
+                        title='{title}')
+      fig.write_html(plot_filename)
   
-  heatmap: |
-    This is a correlation matrix stored in SQL format where:
-    - The first column 'pearson_cor' contains the sample names/IDs (these are row labels, not data)
-    - All other columns are also sample names/IDs (these are column labels)
-    - Each cell contains the Pearson correlation coefficient between the row sample and column sample
-    - The diagonal contains 1.0 values (sample correlated with itself)
-    - The matrix is symmetric
-    
-    MANDATORY PREPROCESSING STEPS:
-    1. ALWAYS execute: df = df.set_index('pearson_cor') 
-    2. VERIFY the resulting matrix is square (N×N dimensions)
-    3. IF NOT SQUARE: The query was limited - you MUST re-run the SQL query WITHOUT any LIMIT clause
-    to get all samples
-    
-    ABSOLUTE REQUIREMENTS:
-    - NEVER plot partial correlation matrices (unless user explicitly requests specific samples)
-    - NEVER treat 'pearson_cor' as plottable data
-    - ALWAYS include ALL available samples in the heatmap
-    - The matrix MUST be symmetric and square
+  pca :
+    template: |
+      import plotly.express as px
+      fig = px.scatter(df, x='{pc_column}', y='{pc_column}',
+                        color='{color_column}' if '{color_column}' != 'None' else None,
+                        title='PCA Plot')
+      fig.update_xaxis(title={pc_column})
+      fig.update_yaxis(title={pc_column})
+      fig.write_html(plot_filename)
 
-    VALIDATION CHECKLIST BEFORE PLOTTING:
-    □ Is df.set_index('pearson_cor') applied?
-    □ Is the matrix square? (df.shape[0] == df.shape[1])
-    □ Are all diagonal values ≈ 1.0?
-    □ If any check fails → Re-query data without LIMIT
-                
-    ERROR PREVENTION:
-    - "['Pearson_cor'] not found in axis" = You're treating row labels as data columns
-    - Rectangular matrix = Incomplete data, requires full re-query
+  heatmap:
+    template: |
+      import plotly.graph_objects as go
+      import numpy as np
 
-    EXECUTE THIS EXACTLY:
-    ```python
-    # Transform to proper correlation matrix
-    df = df.set_index('pearson_cor')
+      df = df.set_index('Pearson_cor')  # Convert first column to row labels
 
-    # Validate completeness
-    if df.shape[0] != df.shape[1]:
-        raise ValueError("Incomplete correlation matrix — re-run query without LIMIT")
+      fig = go.Figure(data=go.Heatmap(
+          z=df.values,
+          x=df.columns.tolist(),
+          y=df.index.tolist(),
+          colorscale='RdBu',
+          text=np.round(df.values, 2),
+          texttemplate="%{text}",
+          textfont=dict(size=8),
+          showscale=True,
+          zmin=-1,
+          zmax=1
+      ))
 
-    # Now plot heatmap
-    import seaborn as sns
-    import matplotlib.pyplot as plt
+      fig.update_layout(
+          title='{title}',  # can still be replaced dynamically
+          xaxis_title='Samples',
+          yaxis_title='Samples',
+          width=max(600, df.shape[1] * 40),
+          height=max(600, df.shape[0] * 40),
+          xaxis=dict(side='bottom'),
+          yaxis=dict(autorange='reversed')
+      )
 
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(
-        df,
-        annot=True,                # Insert Pearson correlation values in each cell
-        fmt=".2f",                 # Format to 2 decimal places
-        cmap='coolwarm',           # Use coolwarm color palette
-        square=True,
-        cbar_kws={"shrink": 0.75}  # Optional: shrink color bar for aesthetics
-    )
-    plt.title("Pearson Correlation Matrix")
-    plt.tight_layout()
-    plt.show()
-    ```
+      fig.write_html(plot_filename)
 
-    DO NOT DEVIATE FROM THESE INSTRUCTIONS
+    prompt: |
+      This is a correlation matrix stored in SQL format where:
+      - The first column 'pearson_cor' contains the sample names/IDs (these are row labels, not data)
+      - All other columns are also sample names/IDs (these are column labels)
+      - Each cell contains the Pearson correlation coefficient between the row sample and column sample
+      - The diagonal contains 1.0 values (sample correlated with itself)
+      - The matrix is symmetric
+      
+      MANDATORY PREPROCESSING STEPS:
+      1. ALWAYS execute: df = df.set_index('pearson_cor') 
+      2. VERIFY the resulting matrix is square (N×N dimensions)
+      3. IF NOT SQUARE: The query was limited - you MUST re-run the SQL query WITHOUT any LIMIT clause
+      to get all samples
+      
+      ABSOLUTE REQUIREMENTS:
+      - NEVER plot partial correlation matrices (unless user explicitly requests specific samples)
+      - NEVER treat 'pearson_cor' as plottable data
+      - ALWAYS include ALL available samples in the heatmap
+      - The matrix MUST be symmetric and square
 
-  volcano: |
-    This is a DESeq2 differential expression analysis results table with the following structure:
-    - gene_name: Gene symbol/name (for labeling significant genes)
-    - baseMean: Mean normalized counts across all samples
-    - log2FoldChange: Log2 fold change (x-axis of volcano plot)
-    - pvalue: Raw p-value from statistical test
-    - padj: Adjusted p-value (Benjamini-Hochberg FDR correction)
-    - Significance: Pre-computed significance category
-    - Geneid: Gene identifier
-    - Chr, Start, End, Strand, Length: Genomic coordinates
+      VALIDATION CHECKLIST BEFORE PLOTTING:
+      □ Is df.set_index('pearson_cor') applied?
+      □ Is the matrix square? (df.shape[0] == df.shape[1])
+      □ Are all diagonal values ≈ 1.0?
+      □ If any check fails → Re-query data without LIMIT
+                  
+      ERROR PREVENTION:
+      - "['Pearson_cor'] not found in axis" = You're treating row labels as data columns
+      - Rectangular matrix = Incomplete data, requires full re-query
 
-    MANDATORY PREPROCESSING STEPS:
-    1. ALWAYS remove rows where padj is NULL/NaN (these genes couldn't be tested)
-    2. ALWAYS remove rows where log2FoldChange is NULL/NaN 
-    3. CREATE significance categories based on thresholds:
-       - Upregulated: log2FoldChange > 1 AND padj < 0.05
-       - Downregulated: log2FoldChange < -1 AND padj < 0.05  
-       - Not significant: All other genes
-    4. CALCULATE -log10(padj) for y-axis values
-    5. HANDLE padj = 0 values by setting them to minimum non-zero padj value
+      EXECUTE THIS EXACTLY:
+      ```python
+      # Transform to proper correlation matrix
+      df = df.set_index('pearson_cor')
 
-    ABSOLUTE REQUIREMENTS FOR PUBLICATION QUALITY:
-    - Use professional color scheme: upregulated (red/firebrick), downregulated (blue/steelblue), not significant (gray)
-    - Include significance threshold lines: vertical at ±1 log2FC, horizontal at -log10(0.05)
-    - Label top significant genes (by lowest padj values)
-    - Include proper axis labels with statistical notation
-    - Add title with sample comparison information
-    - Include legend with gene counts per category
+      # Validate completeness
+      if df.shape[0] != df.shape[1]:
+          raise ValueError("Incomplete correlation matrix — re-run query without LIMIT")
 
-    EXECUTE THIS EXACTLY:
-    ```python
-    import plotly.graph_objects as go
-    import plotly.express as px
-    import pandas as pd
-    import numpy as np
+      # Now plot heatmap
+      import seaborn as sns
+      import matplotlib.pyplot as plt
 
-    # Preprocessing
-    df = df.dropna(subset=['padj', 'log2FoldChange'])
-    
-    # Handle padj = 0 (set to minimum non-zero value)
-    min_padj = df[df['padj'] > 0]['padj'].min()
-    df['padj'] = df['padj'].replace(0, min_padj)
-    
-    # Calculate -log10(padj) for y-axis
-    df['-log10_padj'] = -np.log10(df['padj'])
-    
-    # Define significance categories
-    df['volcano_significance'] = 'Not significant'
-    df.loc[(df['log2FoldChange'] > 1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Upregulated'
-    df.loc[(df['log2FoldChange'] < -1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Downregulated'
-    
-    # Count genes in each category
-    sig_counts = df['volcano_significance'].value_counts()
-    
-    # Color mapping
-    color_map = {
-        'Upregulated': 'firebrick',
-        'Downregulated': 'steelblue', 
-        'Not significant': 'lightgray'
-    }
-    
-    # Create the volcano plot
-    fig = go.Figure()
-    
-    for category in ['Not significant', 'Downregulated', 'Upregulated']:
-        if category in df['volcano_significance'].values:
-            subset = df[df['volcano_significance'] == category]
-            count = len(subset)
-            
-            fig.add_trace(go.Scatter(
-                x=subset['log2FoldChange'],
-                y=subset['-log10_padj'],
-                mode='markers',
-                marker=dict(
-                    color=color_map[category],
-                    size=4,
-                    opacity=0.7 if category == 'Not significant' else 0.8
-                ),
-                name=f'{category} ({count})',
-                text=subset['gene_name'],
-                hovertemplate='<b>%{text}</b><br>' +
-                             'log2FC: %{x:.2f}<br>' +
-                             '-log10(padj): %{y:.2f}<br>' +
-                             '<extra></extra>'
-            ))
-    
-    # Add significance threshold lines
-    fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="black", 
-                  annotation_text="padj = 0.05", annotation_position="bottom right")
-    fig.add_vline(x=1, line_dash="dash", line_color="black", 
-                  annotation_text="log2FC = 1", annotation_position="top left")
-    fig.add_vline(x=-1, line_dash="dash", line_color="black", 
-                  annotation_text="log2FC = -1", annotation_position="top right")
-    
-    # Label top significant genes (optional - top 10 by significance)
-    top_genes = df[df['volcano_significance'] != 'Not significant'].nsmallest(10, 'padj')
-    for _, gene in top_genes.iterrows():
-        fig.add_annotation(
-            x=gene['log2FoldChange'],
-            y=gene['-log10_padj'],
-            text=gene['gene_name'],
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1,
-            arrowwidth=1,
-            arrowcolor="black",
-            font=dict(size=10)
-        )
-    
-    # Update layout for publication quality
-    fig.update_layout(
-        title=dict(
-            text="Volcano Plot - Differential Gene Expression",
-            x=0.5,
-            font=dict(size=16, family="Arial")
-        ),
-        xaxis_title="log<sub>2</sub> Fold Change",
-        yaxis_title="-log<sub>10</sub> (adjusted p-value)",
-        font=dict(size=12, family="Arial"),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        width=800,
-        height=600,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01,
-            bgcolor="rgba(255,255,255,0.8)",
-            bordercolor="black",
-            borderwidth=1
-        )
-    )
-    
-    # Update axes
-    fig.update_xaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='lightgray',
-        zeroline=True,
-        zerolinewidth=2,
-        zerolinecolor='black',
-        showline=True,
-        linewidth=2,
-        linecolor='black'
-    )
-    
-    fig.update_yaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='lightgray',
-        showline=True,
-        linewidth=2,
-        linecolor='black'
-    )
-    
-    fig.show()
-    
-    # Print summary statistics
-    print("Volcano Plot Summary:")
-    print(f"Total genes plotted: {len(df)}")
-    print(f"Upregulated genes (log2FC > 1, padj < 0.05): {sig_counts.get('Upregulated', 0)}")
-    print(f"Downregulated genes (log2FC < -1, padj < 0.05): {sig_counts.get('Downregulated', 0)}")
-    print(f"Not significant: {sig_counts.get('Not significant', 0)}")
-    ```
+      plt.figure(figsize=(10, 8))
+      sns.heatmap(
+          df,
+          annot=True,                # Insert Pearson correlation values in each cell
+          fmt=".2f",                 # Format to 2 decimal places
+          cmap='coolwarm',           # Use coolwarm color palette
+          square=True,
+          cbar_kws={"shrink": 0.75}  # Optional: shrink color bar for aesthetics
+      )
+      plt.title("Pearson Correlation Matrix")
+      plt.tight_layout()
+      plt.show()
+      ```
 
-    CUSTOMIZATION OPTIONS:
-    - Adjust significance thresholds by changing the 1/-1 log2FC and 0.05 padj cutoffs
-    - Modify colors in color_map dictionary
-    - Change number of labeled genes by modifying nsmallest(10, 'padj')
-    - Adjust plot dimensions in width/height parameters
-    - Remove gene labels by commenting out the annotation loop
+      DO NOT DEVIATE FROM THESE INSTRUCTIONS
 
-    VALIDATION CHECKLIST BEFORE PLOTTING:
-    □ Are padj and log2FoldChange columns free of NaN values?
-    □ Are -log10(padj) values calculated correctly?
-    □ Are significance categories properly assigned?
-    □ Do threshold lines appear at correct positions?
-    □ Is the plot publication-ready with proper labels and legend?
+  volcano: 
+    template: |
+      import plotly.express as px
+      import numpy as np
+      
+      # Calculate -log10(p-value) for y-axis
+      df['neg_log10_pvalue'] = -np.log10(df['{pvalue_column}'] + 1e-300)
+      
+      # Create significance categories
+      df['Significance'] = 'Not Significant'
+      df.loc[(df['{logfc_column}'] >= 1.0) & (df['{pvalue_column}'] <= 0.05), 'Significance'] = 'Upregulated'
+      df.loc[(df['{logfc_column}'] <= -1.0) & (df['{pvalue_column}'] <= 0.05), 'Significance'] = 'Downregulated'
+      
+      # Create the volcano plot
+      fig = px.scatter(df, 
+                       x='{logfc_column}', 
+                       y='neg_log10_pvalue',
+                       color='Significance',
+                       hover_data=['{gene_column}'] if '{gene_column}' != 'None' else None,
+                       title='{title}',
+                       labels={{'{logfc_column}': 'Log2 Fold Change', 
+                               'neg_log10_pvalue': '-Log10 P-value'}})
+      
+      # Add significance threshold lines
+      fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="gray", annotation_text="p=0.05")
+      fig.add_vline(x=1.0, line_dash="dash", line_color="gray")
+      fig.add_vline(x=-1.0, line_dash="dash", line_color="gray")
+      
+      # Customize colors
+      color_map = {{'Upregulated': 'red', 'Downregulated': 'blue', 'Not Significant': 'lightgray'}}
+      fig.for_each_trace(lambda t: t.update(marker_color=color_map.get(t.name, 'lightgray')))
+      
+      fig.write_html(plot_filename)
 
-    ERROR PREVENTION:
-    - "log of zero" errors = Handle padj = 0 values as shown above
-    - Missing significance categories = Check your threshold criteria
-    - Overlapping labels = Reduce number of labeled genes or adjust positions
+    prompt: |
 
-    DO NOT DEVIATE FROM THESE INSTRUCTIONS
+      This is a DESeq2 differential expression analysis results table with the following structure:
+      - gene_name: Gene symbol/name (for labeling significant genes)
+      - baseMean: Mean normalized counts across all samples
+      - log2FoldChange: Log2 fold change (x-axis of volcano plot)
+      - pvalue: Raw p-value from statistical test
+      - padj: Adjusted p-value (Benjamini-Hochberg FDR correction)
+      - Significance: Pre-computed significance category
+      - Geneid: Gene identifier
+      - Chr, Start, End, Strand, Length: Genomic coordinates
+
+      MANDATORY PREPROCESSING STEPS:
+      1. ALWAYS remove rows where padj is NULL/NaN (these genes couldn't be tested)
+      2. ALWAYS remove rows where log2FoldChange is NULL/NaN 
+      3. CREATE significance categories based on thresholds:
+        - Upregulated: log2FoldChange > 1 AND padj < 0.05
+        - Downregulated: log2FoldChange < -1 AND padj < 0.05  
+        - Not significant: All other genes
+      4. CALCULATE -log10(padj) for y-axis values
+      5. HANDLE padj = 0 values by setting them to minimum non-zero padj value
+
+      ABSOLUTE REQUIREMENTS FOR PUBLICATION QUALITY:
+      - Use professional color scheme: upregulated (red/firebrick), downregulated (blue/steelblue), not significant (gray)
+      - Include significance threshold lines: vertical at ±1 log2FC, horizontal at -log10(0.05)
+      - Label top significant genes (by lowest padj values)
+      - Include proper axis labels with statistical notation
+      - Add title with sample comparison information
+      - Include legend with gene counts per category
+
+      EXECUTE THIS EXACTLY:
+      ```python
+      import plotly.graph_objects as go
+      import plotly.express as px
+      import pandas as pd
+      import numpy as np
+
+      # Preprocessing
+      df = df.dropna(subset=['padj', 'log2FoldChange'])
+      
+      # Handle padj = 0 (set to minimum non-zero value)
+      min_padj = df[df['padj'] > 0]['padj'].min()
+      df['padj'] = df['padj'].replace(0, min_padj)
+      
+      # Calculate -log10(padj) for y-axis
+      df['-log10_padj'] = -np.log10(df['padj'])
+      
+      # Define significance categories
+      df['volcano_significance'] = 'Not significant'
+      df.loc[(df['log2FoldChange'] > 1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Upregulated'
+      df.loc[(df['log2FoldChange'] < -1) & (df['padj'] < 0.05), 'volcano_significance'] = 'Downregulated'
+      
+      # Count genes in each category
+      sig_counts = df['volcano_significance'].value_counts()
+      
+      # Color mapping
+      color_map = {
+          'Upregulated': 'firebrick',
+          'Downregulated': 'steelblue', 
+          'Not significant': 'lightgray'
+      }
+      
+      # Create the volcano plot
+      fig = go.Figure()
+      
+      for category in ['Not significant', 'Downregulated', 'Upregulated']:
+          if category in df['volcano_significance'].values:
+              subset = df[df['volcano_significance'] == category]
+              count = len(subset)
+              
+              fig.add_trace(go.Scatter(
+                  x=subset['log2FoldChange'],
+                  y=subset['-log10_padj'],
+                  mode='markers',
+                  marker=dict(
+                      color=color_map[category],
+                      size=4,
+                      opacity=0.7 if category == 'Not significant' else 0.8
+                  ),
+                  name=f'{category} ({count})',
+                  text=subset['gene_name'],
+                  hovertemplate='<b>%{text}</b><br>' +
+                              'log2FC: %{x:.2f}<br>' +
+                              '-log10(padj): %{y:.2f}<br>' +
+                              '<extra></extra>'
+              ))
+      
+      # Add significance threshold lines
+      fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="black", 
+                    annotation_text="padj = 0.05", annotation_position="bottom right")
+      fig.add_vline(x=1, line_dash="dash", line_color="black", 
+                    annotation_text="log2FC = 1", annotation_position="top left")
+      fig.add_vline(x=-1, line_dash="dash", line_color="black", 
+                    annotation_text="log2FC = -1", annotation_position="top right")
+      
+      # Label top significant genes (optional - top 10 by significance)
+      top_genes = df[df['volcano_significance'] != 'Not significant'].nsmallest(10, 'padj')
+      for _, gene in top_genes.iterrows():
+          fig.add_annotation(
+              x=gene['log2FoldChange'],
+              y=gene['-log10_padj'],
+              text=gene['gene_name'],
+              showarrow=True,
+              arrowhead=2,
+              arrowsize=1,
+              arrowwidth=1,
+              arrowcolor="black",
+              font=dict(size=10)
+          )
+      
+      # Update layout for publication quality
+      fig.update_layout(
+          title=dict(
+              text="Volcano Plot - Differential Gene Expression",
+              x=0.5,
+              font=dict(size=16, family="Arial")
+          ),
+          xaxis_title="log<sub>2</sub> Fold Change",
+          yaxis_title="-log<sub>10</sub> (adjusted p-value)",
+          font=dict(size=12, family="Arial"),
+          plot_bgcolor='white',
+          paper_bgcolor='white',
+          width=800,
+          height=600,
+          legend=dict(
+              yanchor="top",
+              y=0.99,
+              xanchor="left",
+              x=0.01,
+              bgcolor="rgba(255,255,255,0.8)",
+              bordercolor="black",
+              borderwidth=1
+          )
+      )
+      
+      # Update axes
+      fig.update_xaxes(
+          showgrid=True,
+          gridwidth=1,
+          gridcolor='lightgray',
+          zeroline=True,
+          zerolinewidth=2,
+          zerolinecolor='black',
+          showline=True,
+          linewidth=2,
+          linecolor='black'
+      )
+      
+      fig.update_yaxes(
+          showgrid=True,
+          gridwidth=1,
+          gridcolor='lightgray',
+          showline=True,
+          linewidth=2,
+          linecolor='black'
+      )
+      
+      fig.show()
+      
+      # Print summary statistics
+      print("Volcano Plot Summary:")
+      print(f"Total genes plotted: {len(df)}")
+      print(f"Upregulated genes (log2FC > 1, padj < 0.05): {sig_counts.get('Upregulated', 0)}")
+      print(f"Downregulated genes (log2FC < -1, padj < 0.05): {sig_counts.get('Downregulated', 0)}")
+      print(f"Not significant: {sig_counts.get('Not significant', 0)}")
+      ```
+
+      CUSTOMIZATION OPTIONS:
+      - Adjust significance thresholds by changing the 1/-1 log2FC and 0.05 padj cutoffs
+      - Modify colors in color_map dictionary
+      - Change number of labeled genes by modifying nsmallest(10, 'padj')
+      - Adjust plot dimensions in width/height parameters
+      - Remove gene labels by commenting out the annotation loop
+
+      VALIDATION CHECKLIST BEFORE PLOTTING:
+      □ Are padj and log2FoldChange columns free of NaN values?
+      □ Are -log10(padj) values calculated correctly?
+      □ Are significance categories properly assigned?
+      □ Do threshold lines appear at correct positions?
+      □ Is the plot publication-ready with proper labels and legend?
+
+      ERROR PREVENTION:
+      - "log of zero" errors = Handle padj = 0 values as shown above
+      - Missing significance categories = Check your threshold criteria
+      - Overlapping labels = Reduce number of labeled genes or adjust positions
+
+      DO NOT DEVIATE FROM THESE INSTRUCTIONS
+
+# Whitelist of allowed plots
+allowed_plots:
+  - scatter
+  - pca
+  - heatmap
+  - volcano
+  - bar  
+  - histogram
+  - boxplot

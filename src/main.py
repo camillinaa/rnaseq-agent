@@ -2,7 +2,6 @@
 import logging
 import os
 from dotenv import load_dotenv
-from langchain_mistralai import ChatMistralAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from database import RNAseqDatabase
 from plotter import RNAseqPlotter

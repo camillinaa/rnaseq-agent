@@ -19,7 +19,13 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
             result = agent.invoke(input_dict)
             
             # --- NEW: Save the entire API response (agent output) for debugging ---
-            debug_filename = f"debug_agent_response_{int(time.time())}_attempt_{attempt+1}.json"
+            import os
+            import secrets
+
+            debug_dir = "debug_responses"
+            os.makedirs(debug_dir, exist_ok=True)
+            secure_id = secrets.token_hex(16)
+            debug_filename = os.path.join(debug_dir, f"agent_response_{secure_id}_attempt_{attempt+1}.json")
             try:
                 with open(debug_filename, 'w') as f:
                     json.dump(result, f, indent=2)
@@ -38,14 +44,14 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
                 if attempt < max_retries - 1:
                     # Exponential backoff with jitter
                     delay = min(2 ** attempt + random.uniform(0, 1), 30)
-                    print(f"MistralAI at capacity, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})")
+                    print(f"Gemini at capacity, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})")
                     time.sleep(delay)
                     continue
                 else:
                     # All retries exhausted - return in the same format as normal agent response
                     logger.error(f"All {max_retries} retries exhausted for API call.")
                     return {
-                        "output": "MistralAI is currently at capacity. Please try again in a few moments.",
+                        "output": "Gemini is currently at capacity. Please try again in a few minutes or contact us.",
                         "intermediate_steps": []
                     }
             else:
