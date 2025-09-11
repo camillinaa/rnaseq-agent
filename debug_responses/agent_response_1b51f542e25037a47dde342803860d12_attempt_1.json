@@ -1,0 +1,4 @@
+{
+  "input": "\n            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual \n            data from the database\u2014never simulated or imagined, and interpret them in an in-depth biological\n            context to research scientists.\n\n            You are answering a question about sequencing depth or normalization factors in the RNA-seq experiment.\n- Query the `library_size` table.\n- Columns of interest are `samples`, `lib.size`, and `norm.factors`.\n- Use SQL queries to return information about library sizes and normalization factors for specific samples or across the study.\n\n            \n            \n\nUser question: what was the library size of all samples",
+  "chat_history": [
+    

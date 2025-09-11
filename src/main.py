@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 def create_agent():
-    db_path = "data/rnaseq.db"
+    db_path = "data/rnaseq_results.db"
     code_llm = ChatGoogleGenerativeAI(
         model=os.getenv("CODE_MODEL_NAME"), 
         api_key=os.getenv("GEMINI_API_KEY"), 

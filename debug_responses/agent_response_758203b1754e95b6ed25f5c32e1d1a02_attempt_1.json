@@ -1,0 +1,4 @@
+{
+  "input": "\n            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual \n            data from the database\u2014never simulated or imagined, and interpret them in an in-depth biological\n            context to research scientists.\n\n            You are answering a question about available comparisons or subsets in the differential gene expression (DGE) analysis.\n- Query the `dea_metadata` table.\n- Columns of interest are `id`, `sample_subset`, and `comparison`.\n\n            \n            \n\nUser question: what conditions do we have in our samples?",
+  "chat_history": [
+    

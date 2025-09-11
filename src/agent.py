@@ -473,6 +473,7 @@ class RNAseqAgent:
                 7. Be schematic and scientifically accurate
                 8. Still be conversational and engaging and prompt more exploration
                 9. Focus on answering the user's specific question with the actual results obtained
+                10. Do not use the conditional tense or speculate. 
 
                 Respond as if you're directly answering the user's question with the real data that was just retrieved.
             """

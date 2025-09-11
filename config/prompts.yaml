@@ -5,71 +5,67 @@ task_specific_prompts:
 
   gene_expression_query: |
     You are handling a gene expression query.
-    - When querying gene expression, use the `normalization` table.
-    - **CRITICAL:** `normalization` table is structured as follows: "gene_name" and "gene_id" are the gene symbol and 
-    Ensembl ID respectively; Chr, Start, End, Strand, Length are the genomic coordinates (semicolon-separated for multiple
-    isoforms); the rest of the columns are the SAMPLE COLUMNS containing normalized expression values for each sample.
-    - There are NO generic sample_id or expression_value columns, instead, the column headers are the samples and the 
-    values are the expression levels.
-    - You must first use `database_schema_tool` or `sample_column_values_tool` to identify all relevant sample columns.
-    - To find the highest/lowest expression, query the gene and then compare values across these sample columns.
-    - After receiving the query result, you must then programmatically determine which sample column contains the highest 
-    or lowest value.
-    - For example, to find the highest expression of 'GAPDH': first find all sample columns in `normalization`, then query 
-    `SELECT gene_name, {ALL sample columns} FROM normalization WHERE gene_name = 'GAPDH'`. Then determine the max value 
-    programmatically from the returned row.
-    - Never hardcode sample names unless asked by the user.
+    - When querying gene expression, use the `normalized_counts_matrix` table.
+    - **CRITICAL:** `normalized_counts_matrix` is structured as follows: "gene_name" and "gene_id" are the gene symbol and 
+      Ensembl ID respectively; chr, start, end, strand, length are the genomic coordinates (semicolon-separated for multiple
+      isoforms); the rest of the columns are SAMPLE COLUMNS containing normalized expression values for each sample.
+    - There are NO generic sample_id or expression_value columns; column headers are the sample names.
+    - First, identify all relevant sample columns using `database_schema_tool` or `sample_column_values_tool`.
+    - To find the highest/lowest expression, query the gene and then compare values across these sample columns programmatically.
+    - Never hardcode sample names unless explicitly requested.
     - The final answer must state the sample name and its corresponding expression value.
-    - If the user asks for metadata of a specific sample, use the `metadata` table, where sample names are in the 'Sample' 
-    column.
+    - If the user asks for metadata of a specific sample, use the `study_metadata` table, where sample names are in the 'Sample' column.
 
   differential_expression_analysis: |
     You are handling a differential expression analysis query.
-    - Look for tables starting with `dea_`. Their names follow the pattern: 
-    `dea_[sample_subset]_[comparison]_deseq2`.
-    - If asked about what comparisons are available, use `database_schema_tool` to list all `dea_` tables and extract
-    comparison names.
-    - If asked on what subsets the analysis was carries out, use `database_schema_tool` to list all `dea_` tables
-    and extract subset names.
-    - If no sample subset is specified by the user, default to 'all_samples' if available.
-    - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
-    - If no comparison is specified, you must first ask the user for clarification.
-    - If visualization is requested as "volcano", retrieve ALL genes without filtering (SELECT * FROM table)
-    - For other queries, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
+    - Query the `deseq2_results` table.
+    - Use the `dea_metadata` table to list available `sample_subset` and `comparison` combinations.
+    - If no sample subset is specified by the user, default to 'all_samples' if available in `dea_metadata`.
+    - If no comparison is specified, ask the user for clarification.
+    - When asked about significantly upregulated or downregulated genes, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
     - Prioritize `gene_name`, `log2FoldChange`, `padj`, `baseMean` columns.
 
   pathway_enrichment_analysis: |
     You are handling a pathway enrichment or gene set analysis query.
-    - Look for tables starting with `dea_`. Their names follow the pattern: 
-    `dea_[sample_subset]_[comparison]_[analysis]_[gene_set]`.
+    - Query the `enrichment_results` table.
     - If no sample subset is specified by the user, default to 'all_samples' if available.
     - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
-    - If no comparison is specified, you must first ask the user for clarification.
-    - The `analysis` can be 'ora' (over-representation analysis) or 'gsea' (gene set enrichment analysis).
-    - The `gene_set` can be 'go', 'curated', or 'hallmark'.
-    - Focus on 'enrichmentScore', 'p.adjust, and associated gene lists.
+    - If no subset or comparison is specified, default to 'all_samples' or ask for clarification.
+    - Use `dea_metadata` to identify valid `sample_subset` and `comparison`.
+    - `gene_set` can be 'go', 'curated', or 'hallmark'.
+    - When asked about enriched pathways, focus on `Adjusted_P_value < 0.05` and rank by `Combined_Score`.
+    - Focus on `Combined_Score`, `Adjusted_P_value`, and associated gene lists for reporting.
+#    - `analysis_type` can be 'ora', 'gsea', or 'enrichr'.
 
-  correlation_heatmap: |
-    You are asked to generate a correlation heatmap.
-    - Query the `correlation` table.
-    - The `correlation` table is a square NxN matrix of sample correlations where the first column 'pearson_cor' lists 
-    sample names, all other columns are also sample names, and each cell contains the Pearson correlation coefficient 
-    between the row sample and column sample.
+  correlation_matrix: |
+    You are asked to generate a correlation matrix.
+    - Query the `correlation_matrix` table.
+    - `correlation_matrix` is a square NxN matrix of sample correlations; the first column is the sample name, other columns 
+      are also sample names, and each cell contains the Pearson correlation coefficient.
     - Use the `plot_tool` with `plot_type='heatmap'`.
 
   dimensionality_reduction: |
     You are handling a dimensionality reduction query.
-    - Query the `dim_reduction_pca` table if asked for PCA.
-    - Query the `dim_reduction_mds` table if asked for MDS.
-    - The `dim_reduction_pca` table has columns: 'samples', 'PC1', 'PC2', ..., 'PCn' for PCA components, and columns for
-    each metadata variable.
-    - The `dim_reduction_mds` table has columns: 'samples', 'x', 'y' for MDS coordinates, and columns for each metadata
-    variable.
+    - Query the `pca_scores` table if asked for PCA.
+    - Query the `mds_scores` table if asked for MDS.
+    - `pca_scores` has columns: 'samples', 'PC1', 'PC2', ..., plus metadata variables.
+    - `mds_scores` has columns: 'samples', 'x', 'y', plus metadata variables.
 
-  metadata_query: |
+  dea_metadata: |
+    You are answering a question about available comparisons or subsets in the differential gene expression (DGE) analysis.
+    - Query the `dea_metadata` table.
+    - Columns of interest are `id`, `sample_subset`, and `comparison`.
+
+  study_metadata: |
     You are answering a question about experimental design or sample information.
-    - Query the `metadata` table.
-    - Columns of interest might include `Sample`, `cell_type`, `condition`, `patient_id`, `flattening`, `batch`.
+    - Query the `study_metadata` table.
+    - Columns of interest might include `Sample`, `cell_type`, `condition`, `patient_id`, `batch`.
+
+  library_size: |
+    You are answering a question about sequencing depth or normalization factors in the RNA-seq experiment.
+    - Query the `library_size` table.
+    - Columns of interest are `samples`, `lib.size`, and `norm.factors`.
+    - Use SQL queries to return information about library sizes and normalization factors for specific samples or across the study.
 
   general_query: |
     You are handling a general or unspecified query.
