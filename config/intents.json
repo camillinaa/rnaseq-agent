@@ -121,7 +121,7 @@
     "Provide the top Reactome pathways ranked by combined score in 'Flattening_Yes_No'.",
     "Show the significant GO Cellular Component pathways for 'Type_E-GSC_L-GSC'."
   ],
-  "correlation_heatmap": [
+  "correlation_matrix": [
     "Show heatmap",
     "Plot correalations",
     "Show me a heatmap of correlations",

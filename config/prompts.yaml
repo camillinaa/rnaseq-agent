@@ -19,23 +19,25 @@ task_specific_prompts:
   differential_expression_analysis: |
     You are handling a differential expression analysis query.
     - Query the `deseq2_results` table.
-    - Use the `dea_metadata` table to list available `sample_subset` and `comparison` combinations.
+    - Use the `dea_metadata` table to list available `sample_subset`, `comparison_variable`, `comparison1`, and `comparison2` combinations.
     - If no sample subset is specified by the user, default to 'all_samples' if available in `dea_metadata`.
     - If no comparison is specified, ask the user for clarification.
-    - When asked about significantly upregulated or downregulated genes, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
+    - The comparison structure is split into: `comparison_variable` (e.g., "Flattening", "Type"), `comparison1` (e.g., "Yes", "E-GSC"), and `comparison2` (e.g., "No", "L-GSC").
+    - For visualization as a "volcano" plot, retrieve all genes (`SELECT * FROM deseq2_results`).
+    - For other queries, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
     - Prioritize `gene_name`, `log2FoldChange`, `padj`, `baseMean` columns.
 
   pathway_enrichment_analysis: |
     You are handling a pathway enrichment or gene set analysis query.
     - Query the `enrichment_results` table.
-    - If no sample subset is specified by the user, default to 'all_samples' if available.
-    - If no sample subset is specified by the user and no 'all_samples' is available, you must ask the user for clarification.
+    - Columns of interest: `sample_subset`, `comparison_variable`, `comparison1`, `comparison2`, `analysis_type`, `gene_set`, `Term`, `Overlap`, `P_value`, 
+      `Adjusted_P_value`, `Old_P_value`, `Old_Adjusted_P_value`, `Odds_Ratio`, `Combined_Score`, `Genes`.
+    - Use `dea_metadata` to identify valid `sample_subset`, `comparison_variable`, `comparison1`, and `comparison2`.
     - If no subset or comparison is specified, default to 'all_samples' or ask for clarification.
-    - Use `dea_metadata` to identify valid `sample_subset` and `comparison`.
+    - The comparison structure is split into: `comparison_variable` (e.g., "Flattening", "Type"), `comparison1` (e.g., "Yes", "E-GSC"), and `comparison2` (e.g., "No", "L-GSC").
+    - `analysis_type` can be 'ora', 'gsea', or 'enrichr'.
     - `gene_set` can be 'go', 'curated', or 'hallmark'.
-    - When asked about enriched pathways, focus on `Adjusted_P_value < 0.05` and rank by `Combined_Score`.
     - Focus on `Combined_Score`, `Adjusted_P_value`, and associated gene lists for reporting.
-#    - `analysis_type` can be 'ora', 'gsea', or 'enrichr'.
 
   correlation_matrix: |
     You are asked to generate a correlation matrix.

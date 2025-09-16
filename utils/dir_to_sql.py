@@ -35,12 +35,12 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS deseq2_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sample_subset TEXT,
-    comparison TEXT,
+    comparison_variable TEXT,
+    comparison1 TEXT,
+    comparison2 TEXT,
     gene_name TEXT,
     baseMean REAL,
     log2FoldChange REAL,
-    lfcSE REAL,
-    stat REAL,
     pvalue REAL,
     padj REAL,
     significance TEXT,
@@ -55,11 +55,14 @@ CREATE TABLE IF NOT EXISTS deseq2_results (
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS enrichment_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     sample_subset TEXT,
-    comparison TEXT,
-    analysis_type TEXT,
+    comparison_variable TEXT,
+    comparison1 TEXT,
+    comparison2 TEXT,
     gene_set TEXT,
+    analysis_type TEXT,
+    ID TEXT,
+    Description TEXT,
     Term TEXT,
     Overlap TEXT,
     P_value REAL,
@@ -68,7 +71,23 @@ CREATE TABLE IF NOT EXISTS enrichment_results (
     Old_Adjusted_P_value REAL,
     Odds_Ratio REAL,
     Combined_Score REAL,
-    Genes TEXT
+    Genes TEXT,
+    GeneRatio TEXT,
+    BgRatio TEXT,
+    RichFactor REAL,
+    FoldEnrichment REAL,
+    zScore REAL,
+    pvalue REAL,
+    p_adjust REAL,
+    qvalue REAL,
+    geneID TEXT,
+    Count INTEGER,
+    setSize INTEGER,
+    enrichmentScore REAL,
+    NES REAL,
+    rank TEXT,
+    leading_edge TEXT,
+    core_enrichment TEXT
 )
 """)
 
@@ -95,46 +114,62 @@ for subset_dir in base_dir.glob("dea_*"):
         if not comparison_dir.is_dir():
             continue
         comparison_name = comparison_dir.name.replace("dea_", "")
+        parts = comparison_name.split("_vs_")
+        left_parts = parts[0].split("_")
+        comparison_variable = "_".join(left_parts[:-1]) if len(left_parts) > 1 else ""
+        comparison1 = left_parts[-1] if left_parts else ""
+        comparison2 = parts[1] if len(parts) > 1 else ""
 
         # ---- DESeq2 results ----
         for deseq_file in comparison_dir.glob("deseq2_toptable.*.txt"):
             df = pd.read_csv(deseq_file, sep="\t")
-            df.insert(0, "comparison", comparison_name)
+            df.insert(0, "comparison_variable", comparison_variable)
+            df.insert(0, "comparison1", comparison1)
+            df.insert(0, "comparison2", comparison2)
             df.insert(0, "sample_subset", subset_name)
             df.to_sql("deseq2_results", conn, if_exists="append", index=False)
             print(f"Imported DESeq2 table: {deseq_file}")
 
         # ---- Enrichment results ----
-        for enrich_file in comparison_dir.glob("*_all.xlsx"):
+        for enrich_file in comparison_dir.glob("*.xlsx"):
             if enrich_file.name.startswith("deseq2"):
                 continue
 
-            if enrich_file.name.startswith("enrichr"):
-                analysis_type = "enrichr"
-            elif enrich_file.name.startswith("gsea"):
-                analysis_type = "gsea"
-            elif enrich_file.name.startswith("ora"):
-                analysis_type = "ora"
-            else:
-                continue
+            # Only process correct files
+            if (enrich_file.name.startswith("enrichr.") and enrich_file.name.endswith("_all.xlsx")) or \
+            (enrich_file.name.startswith("gsea.") and not any(x in enrich_file.name for x in [".c2.", ".c5.", ".h."])) or \
+            (enrich_file.name.startswith("ora_CP.") and enrich_file.name.endswith(".all.xlsx")):
+                
+                if enrich_file.name.startswith("enrichr"):
+                    analysis_type = "enrichr"
+                elif enrich_file.name.startswith("gsea"):
+                    analysis_type = "gsea"
+                elif enrich_file.name.startswith("ora"):
+                    analysis_type = "ora"
+                else:
+                    continue
 
-            xls = pd.ExcelFile(enrich_file)
-            for sheet_name in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet_name)
-                df.insert(0, "analysis_type", analysis_type)
-                df.insert(0, "gene_set", sheet_name)
-                df.insert(0, "sample_subset", subset_name)
-                df.insert(0, "comparison", comparison_name)
-                # Rename columns to be SQLite-friendly
-                df.rename(columns={
-                    "P.value": "P_value",
-                    "Adjusted.P.value": "Adjusted_P_value",
-                    "Old.P.value": "Old_P_value",
-                    "Old.Adjusted.P.value": "Old_Adjusted_P_value",
-                    "Odds.Ratio": "Odds_Ratio",
-                    "Combined.Score": "Combined_Score"
-                }, inplace=True)
-                df.to_sql("enrichment_results", conn, if_exists="append", index=False)
+                xls = pd.ExcelFile(enrich_file)
+                for sheet_name in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sheet_name)
+                    df.insert(0, "analysis_type", analysis_type)
+                    df.insert(0, "gene_set", sheet_name)
+                    df.insert(0, "sample_subset", subset_name)
+                    df.insert(0, "comparison_variable", comparison_variable)
+                    df.insert(0, "comparison1", comparison1)
+                    df.insert(0, "comparison2", comparison2)
+                    # Rename columns to be SQLite-friendly
+                    df.rename(columns={
+                        "P.value": "P_value",
+                        "Adjusted.P.value": "Adjusted_P_value",
+                        "Old.P.value": "Old_P_value",
+                        "Old.Adjusted.P.value": "Old_Adjusted_P_value",
+                        "Odds.Ratio": "Odds_Ratio",
+                        "p.adjust": "p_adjust", 
+                        "Combined.Score": "Combined_Score"
+                    }, inplace=True)
+                    df.to_sql("enrichment_results", conn, if_exists="append", index=False)
+                    print(f"Imported enrichment results: {enrich_file} (sheet: {sheet_name})")
 
 # DEA supporting table
 
