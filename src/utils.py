@@ -17,23 +17,6 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
     for attempt in range(max_retries):
         try:
             result = agent.invoke(input_dict)
-            
-            # --- NEW: Save the entire API response (agent output) for debugging ---
-            import os
-            import secrets
-
-            debug_dir = "debug_responses"
-            os.makedirs(debug_dir, exist_ok=True)
-            secure_id = secrets.token_hex(16)
-            debug_filename = os.path.join(debug_dir, f"agent_response_{secure_id}_attempt_{attempt+1}.json")
-            try:
-                with open(debug_filename, 'w') as f:
-                    json.dump(result, f, indent=2)
-                logger.info(f"Full agent response saved to {debug_filename}")
-            except Exception as file_e:
-                logger.error(f"Failed to save debug response to file {debug_filename}: {file_e}")
-            # --- END NEW ---
-
             return result
             
         except Exception as e:
@@ -59,56 +42,35 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
                 logger.error(f"Non-retryable error during agent invocation: {e}")
                 raise e
 
-def should_clear_memory(self) -> bool:
-    """Determine if memory should be cleared to prevent context overflow"""
-    self.context_state["conversation_count"] += 1
+# def should_clear_memory(self) -> bool:
+#     """Determine if memory should be cleared to prevent context overflow"""
+#     self.context_state["conversation_count"] += 1
     
-    # Clear memory every 25 exchanges or if memory is getting large
-    if (self.context_state["conversation_count"] % 25 == 0 or 
-        len(str(self.memory.chat_memory.messages)) > 8000):
-        logger.info(f"[MEMORY] Clearing memory - conversation count: {self.context_state['conversation_count']}")
-        return True
-    return False
+#     # Clear memory every 25 exchanges or if memory is getting large
+#     if (self.context_state["conversation_count"] % 25 == 0 or 
+#         len(str(self.memory.chat_memory.messages)) > 8000):
+#         logger.info(f"[MEMORY] Clearing memory - conversation count: {self.context_state['conversation_count']}")
+#         return True
+#     return False
 
-def get_context_summary(agent: Any) -> Dict[str, Any]:
-    """Get current context state for debugging"""
-    return {
-        "context_state": agent.context_state.copy(),
-        "memory_length": len(agent.memory.chat_memory.messages),
-        "database_connected": True  # Assuming connection since we got this far
-    }
+# def get_context_summary(agent: Any) -> Dict[str, Any]:
+#     """Get current context state for debugging"""
+#     return {
+#         "context_state": agent.context_state.copy(),
+#         "memory_length": len(agent.memory.chat_memory.messages),
+#         "database_connected": True  # Assuming connection since we got this far
+#     }
 
-def reset_context(agent: Any):
+def reset_memory(agent: Any):
     """Reset conversation context and memory for a given agent instance."""
     logger.info("[RESET] Resetting context and memory")
-    
-    # Check if the agent and its attributes exist before trying to access them
+
     if not hasattr(agent, 'memory'):
         logger.error("[RESET] Agent instance is missing 'memory' attribute.")
         return
-    if not hasattr(agent, 'context_state'):
-        logger.error("[RESET] Agent instance is missing 'context_state' attribute.")
-        return
     
     agent.memory.clear()
-    agent.context_state = {
-        "stage": "start",
-        "last_intent": None,
-        "last_query_successful": False,
-        "current_data_context": None,
-        "conversation_count": 0
-    }
-    logger.info("[RESET] Context reset complete")
-
-def close(self):
-    """Clean up resources"""
-    logger.info("[CLOSE] Cleaning up agent resources")
-    try:
-        self.memory.clear()
-        self.db.close()
-        logger.info("[CLOSE] Cleanup completed successfully")
-    except Exception as e:
-        logger.error(f"[CLOSE] Error during cleanup: {e}")
+    logger.info("[RESET] Memory cleared.")
 
 
 ###############################

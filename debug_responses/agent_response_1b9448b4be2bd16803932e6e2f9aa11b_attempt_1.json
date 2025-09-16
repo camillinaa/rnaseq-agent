@@ -1,4 +1,0 @@
-{
-  "input": "\n            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual \n            data from the database\u2014never simulated or imagined, and interpret them in an in-depth biological\n            context to research scientists.\n\n            You are answering a question about which differential expression analyses were performed.\n- Query the `dea_metadata` table.\n- Columns of interest: `sample_subset`, `comparison`, `description`.\n- Use this table to determine which sample subsets and comparisons are available for querying `deseq2_results` or `enrichment_results`.\n- If the user does not specify a subset or comparison, default to 'all_samples' if it exists, otherwise ask for clarification.\n\n            \n            \n\nUser question: what comparisons do we have for differential expression?",
-  "chat_history": [
-    

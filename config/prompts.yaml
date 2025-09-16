@@ -1,6 +1,6 @@
 task_specific_prompts:
-  greeting: |
-    You are engaging in a brief, polite greeting. Do not use any tools or discuss your functions. Be polite and brief, 
+  conversation: |
+    You are engaging in a brief, polite conversation. Do not use any tools or discuss your functions. Be polite and brief, 
     restating your function, then wait for the user's next request.
 
   gene_expression_query: |
@@ -18,14 +18,38 @@ task_specific_prompts:
 
   differential_expression_analysis: |
     You are handling a differential expression analysis query.
-    - Query the `deseq2_results` table.
-    - Use the `dea_metadata` table to list available `sample_subset`, `comparison_variable`, `comparison1`, and `comparison2` combinations.
-    - If no sample subset is specified by the user, default to 'all_samples' if available in `dea_metadata`.
-    - If no comparison is specified, ask the user for clarification.
-    - The comparison structure is split into: `comparison_variable` (e.g., "Flattening", "Type"), `comparison1` (e.g., "Yes", "E-GSC"), and `comparison2` (e.g., "No", "L-GSC").
-    - For visualization as a "volcano" plot, retrieve all genes (`SELECT * FROM deseq2_results`).
-    - For other queries, filter for `padj < 0.05` and `ABS(log2FoldChange) > 1`.
-    - Prioritize `gene_name`, `log2FoldChange`, `padj`, `baseMean` columns.
+
+    REQUIRED: Always query the database first before responding to the user.
+
+    SQL Query Pattern:
+    - Base query: SELECT * FROM deseq2_results WHERE comparison_variable = '[VARIABLE]' AND comparison1 = '[VALUE1]' AND comparison2 = '[VALUE2]' AND sample_subset = '[SUBSET]'
+    - Replace [VARIABLE], [VALUE1], [VALUE2], and [SUBSET] with user-specified values.
+    - Do not insert a subset that does not exist in the database.
+    - For standard DE analysis: Add "AND padj < 0.05 AND ABS(log2FoldChange) > 1"
+    - For volcano plots: Use base query without statistical filters "padj < 0.05 AND ABS(log2FoldChange) > 1"
+
+    Query Construction:
+    1. Extract comparison details from user query (e.g., "Flattening between yes and no in late samples" → comparison_variable='Flattening', comparison1='Yes', comparison2='No', sample_subset='Late')
+    2. Use exact case-sensitive values as they appear in the database
+    3. If no sample subset is specified, default to 'all_samples' if available
+    4. If comparison or subset details are unclear, first query dea_metadata to show available options
+
+    Default Filters:
+    - Standard queries: padj < 0.05 AND ABS(log2FoldChange) > 1
+    - Volcano plots: No statistical filters (retrieve all genes)
+    - Prioritize columns: gene_name, log2FoldChange, padj, baseMean
+
+    Example Query Structure:
+    SELECT gene_name, log2FoldChange, padj, baseMean 
+    FROM deseq2_results 
+    WHERE comparison_variable = 'Flattening' 
+    AND comparison1 = 'Yes' 
+    AND comparison2 = 'No'
+    AND sample_subset = 'Late'
+    AND padj < 0.05 
+    AND ABS(log2FoldChange) > 1
+    ORDER BY padj ASC;
+# - If no sample subset specified by user, you must default to 'all_samples' if exists, or if not you must ask user to clarify.
 
   pathway_enrichment_analysis: |
     You are handling a pathway enrichment or gene set analysis query.
@@ -56,7 +80,7 @@ task_specific_prompts:
   dea_metadata: |
     You are answering a question about available comparisons or subsets in the differential gene expression (DGE) analysis.
     - Query the `dea_metadata` table.
-    - Columns of interest are `id`, `sample_subset`, and `comparison`.
+    - Columns of interest are `sample_subset`, `comparison_variable`, `comparison1`, and `comparison2`.
 
   study_metadata: |
     You are answering a question about experimental design or sample information.

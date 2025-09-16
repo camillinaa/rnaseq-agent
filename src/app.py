@@ -14,7 +14,7 @@ import utils
 
 # Instantiate your agent
 agent = create_agent()
-utils.reset_context(agent) # Reset context and memory for fresh session
+utils.reset_memory(agent) # Reset context and memory for fresh session
 
 app = dash.Dash(__name__, external_stylesheets=["https://cdn.jsdelivr.net/npm/@mantine/core@latest/dist/mantine.min.css"])
 app.title = "RNA-seq Chatbot"
@@ -408,7 +408,7 @@ def process_bot_response(trigger_counter, chat_history):
     prevent_initial_call=True
 )
 def clear_chat(n_clicks):
-    utils.reset_context(agent) # Reset context and memory
+    utils.reset_memory(agent) # Reset context and memory
     return [], []
 
 @app.callback(

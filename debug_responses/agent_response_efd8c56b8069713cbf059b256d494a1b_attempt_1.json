@@ -1,4 +1,0 @@
-{
-  "input": "\n            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual \n            data from the database\u2014never simulated or imagined, and interpret them in an in-depth biological\n            context to research scientists.\n\n            You are answering a question about experimental design or sample information.\n- Query the `study_metadata` table.\n- Columns of interest might include `Sample`, `cell_type`, `condition`, `patient_id`, `batch`.\n\n            \n            \n\nUser question: show me the metadata per condition",
-  "chat_history": [
-    

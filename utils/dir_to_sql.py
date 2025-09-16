@@ -95,8 +95,9 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS dea_metadata (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sample_subset TEXT,
-    comparison TEXT,
-    description TEXT
+    comparison_variable TEXT,
+    comparison1 TEXT,
+    comparison2 TEXT
 )
 """)
 
@@ -183,15 +184,23 @@ for subset_dir in base_dir.glob("dea_*"):
     for comparison_dir in subset_dir.glob("dea_*"):
         if not comparison_dir.is_dir():
             continue
-        comparison = comparison_dir.name.replace("dea_", "")
-        dea_pairs.add((sample_subset, comparison))
+        comparison_name = comparison_dir.name.replace("dea_", "")
 
-for sample_subset, comparison in dea_pairs:
+        # Split into parts exactly as above
+        parts = comparison_name.split("_vs_")
+        left_parts = parts[0].split("_")
+        comparison_variable = "_".join(left_parts[:-1]) if len(left_parts) > 1 else ""
+        comparison1 = left_parts[-1] if left_parts else ""
+        comparison2 = parts[1] if len(parts) > 1 else ""
+
+        dea_pairs.add((sample_subset, comparison_variable, comparison1, comparison2))
+
+for sample_subset, comparison_variable, comparison1, comparison2 in dea_pairs:
     cursor.execute("""
-        INSERT INTO dea_metadata (sample_subset, comparison)
-        VALUES (?, ?)
-    """, (sample_subset, comparison))
-    
+        INSERT INTO dea_metadata (sample_subset, comparison_variable, comparison1, comparison2)
+        VALUES (?, ?, ?, ?)
+    """, (sample_subset, comparison_variable, comparison1, comparison2))
+
 print(f"Populated dea_metadata with {len(dea_pairs)} unique subset/comparison pairs")
 
 # -----------------------------

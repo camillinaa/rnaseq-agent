@@ -1,5 +1,5 @@
 {
-  "greeting": [
+  "conversation": [
     "Hi",
     "hello",
     "Hey",
@@ -15,7 +15,6 @@
     "great job",
     "can you help me",
     "what can you do",
-    "how do I use this tool",
     "I need help",
     "what are your capabilities"
   ],
@@ -55,7 +54,10 @@
     "hi, what are the differential expression comparisons?",
     "hello, can you show me DE results between conditions?",
     "hey, what comparisons are available for differential expression?",
-    "hi there, which sample subsets have DE analysis?"
+    "hi there, which sample subsets have DE analysis?",
+    "what are the top DEGs in the flattenining yes vs no comparison?",
+    "list the significant DEGs in  NS vs differentiated samples",
+    "show me the DEGs in the E-GSC vs L-GSC comparison."  
   ],
  "pathway_enrichment_analysis": [
     "What gene sets are used in the pathway enrichment analysis?",
@@ -119,7 +121,9 @@
     "List genes associated with top MSigDB Hallmark pathway in 'all_samples'.",
     "Which BioCarta pathways are enriched in 'tumor_only' according to ORA?",
     "Provide the top Reactome pathways ranked by combined score in 'Flattening_Yes_No'.",
-    "Show the significant GO Cellular Component pathways for 'Type_E-GSC_L-GSC'."
+    "Show the significant GO Cellular Component pathways for 'Type_E-GSC_L-GSC'.",
+    "what pathway databases are used for enrichment?",
+    "what pathway does TP53 belong to?"
   ],
   "correlation_matrix": [
     "Show heatmap",
@@ -223,10 +227,45 @@
     "What is the median library size across all samples?"
   ],
   "general_query": [
+    "What data do you have?",
+    "What data do we have?",
+    "What data is there?",
+    "Show me all the data available.",
+    "Show me all the data you have.",
+    "Show me all the data there is.",
+    "Show me all the tables there are.",
+    "Show me all the tables available.",
     "What kind of data do you have?",
+    "what data is available?",
+    "What tables are in the database?",
+    "what data can I access?",
+    "What information can you provide?",
+    "what information is stored here?",
+    "What datasets are included?",
+    "what datasets do you have?",
+    "What analyses can you perform?",
+    "what analyses are possible?",
+    "What features are available?",
+    "what features can I use?",
+    "What options do I have?",
+    "what options are there?",
+    "Tell me about the study design.",
+    "tell me about the experiment.",
+    "give me an overview of the data.",
+    "give me an overview of the analyses.",
     "Can you tell me about the available tables?",
+    "What datasets are included in the database?",
+    "What features can I use to query the data?",
     "What analysis can you perform?",
     "What are my options?",
-    "Tell me about the experimental design."
+    "Tell me about the experimental design.",
+    "what data do we have outside of dge?",
+    "what analyses do we have outside of dge?",
+    "what data do we have apart from dge?",
+    "what data do we have apart from differential expression?",
+    "what is the gene diras3?",
+    "what is RTN1 responsible for?",
+    "what is the function of the gene TP53?",
+    "what does the gene EGFR do?"
   ]
 }

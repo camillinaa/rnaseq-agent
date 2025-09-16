@@ -1,4 +1,0 @@
-{
-  "input": "\n            You are an expert RNA-seq data analyst. Your role is to provide concrete answers using actual \n            data from the database\u2014never simulated or imagined, and interpret them in an in-depth biological\n            context to research scientists.\n\n            You are handling a general or unspecified query.\n- The user is likely asking about what data is available.\n- **Always start by using the `database_schema_tool` and `sample_column_values_tool` to inspect the data and explore \nvariables and values.**\n- Use this information to guide subsequent steps. Do not make assumptions.\n\n            \n            \n\nUser question: hi! tell me about all the data we have",
-  "chat_history": [
-    
