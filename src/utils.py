@@ -42,25 +42,6 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
                 logger.error(f"Non-retryable error during agent invocation: {e}")
                 raise e
 
-# def should_clear_memory(self) -> bool:
-#     """Determine if memory should be cleared to prevent context overflow"""
-#     self.context_state["conversation_count"] += 1
-    
-#     # Clear memory every 25 exchanges or if memory is getting large
-#     if (self.context_state["conversation_count"] % 25 == 0 or 
-#         len(str(self.memory.chat_memory.messages)) > 8000):
-#         logger.info(f"[MEMORY] Clearing memory - conversation count: {self.context_state['conversation_count']}")
-#         return True
-#     return False
-
-# def get_context_summary(agent: Any) -> Dict[str, Any]:
-#     """Get current context state for debugging"""
-#     return {
-#         "context_state": agent.context_state.copy(),
-#         "memory_length": len(agent.memory.chat_memory.messages),
-#         "database_connected": True  # Assuming connection since we got this far
-#     }
-
 def reset_memory(agent: Any):
     """Reset conversation context and memory for a given agent instance."""
     logger.info("[RESET] Resetting context and memory")
@@ -71,36 +52,3 @@ def reset_memory(agent: Any):
     
     agent.memory.clear()
     logger.info("[RESET] Memory cleared.")
-
-
-###############################
-#        SQL FUNCTIONS        #
-###############################
-
-def clean_generated_code(code):
-        """Clean LLM generated code"""
-        # Remove markdown code blocks
-        if code.startswith("```python"):
-            code = code.replace("```python", "").replace("```", "")
-        if code.startswith("```"):
-            code = code.replace("```", "")
-        
-        # Remove explanatory text before the code
-        lines = code.strip().split('\n')
-        clean_lines = []
-        code_started = False
-        
-        for line in lines:
-            if line.strip().startswith('import') or line.strip().startswith('fig') or code_started:
-                code_started = True
-                clean_lines.append(line)
-        
-        return '\n'.join(clean_lines)
-
-def find_column(df: pd.DataFrame, possible_names: List[str]) -> str:
-    """Find column by checking possible names (case insensitive)"""
-    df_cols_lower = [col.lower() for col in df.columns]
-    for name in possible_names:
-        if name.lower() in df_cols_lower:
-            return df.columns[df_cols_lower.index(name.lower())]
-    return None

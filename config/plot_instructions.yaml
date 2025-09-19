@@ -1,0 +1,83 @@
+scatter: 
+  template: |
+    import plotly.express as px
+    fig = px.scatter(df, x='{x_column}', y='{y_column}', 
+                      color='{color_column}' if '{color_column}' != 'None' else None,
+                      title='{title}')
+    fig.write_html(plot_filename)
+
+pca :
+  template: |
+    import plotly.express as px
+    fig = px.scatter(df, x='{pc_column}', y='{pc_column}',
+                      color='{color_column}' if '{color_column}' != 'None' else None,
+                      title='PCA Plot')
+    fig.update_xaxis(title={pc_column})
+    fig.update_yaxis(title={pc_column})
+    fig.write_html(plot_filename)
+
+heatmap:
+  template: |
+    import plotly.graph_objects as go
+    import numpy as np
+
+    df = df.set_index('Pearson_cor')  # Convert first column to row labels
+
+    fig = go.Figure(data=go.Heatmap(
+        z=df.values,
+        x=df.columns.tolist(),
+        y=df.index.tolist(),
+        colorscale='RdBu',
+        text=np.round(df.values, 2),
+        texttemplate="%{text}",
+        textfont=dict(size=8),
+        showscale=True,
+        zmin=-1,
+        zmax=1
+    ))
+
+    fig.update_layout(
+        title='{title}',  # can still be replaced dynamically
+        xaxis_title='Samples',
+        yaxis_title='Samples',
+        width=max(600, df.shape[1] * 40),
+        height=max(600, df.shape[0] * 40),
+        xaxis=dict(side='bottom'),
+        yaxis=dict(autorange='reversed')
+    )
+
+    fig.write_html(plot_filename)
+
+volcano: 
+  template: |
+    import plotly.express as px
+    import numpy as np
+    
+    # Calculate -log10(p-value) for y-axis
+    df['neg_log10_pvalue'] = -np.log10(df['{pvalue_column}'] + 1e-300)
+    
+    # Create significance categories
+    df['Significance'] = 'Not Significant'
+    df.loc[(df['{logfc_column}'] >= 1.0) & (df['{pvalue_column}'] <= 0.05), 'Significance'] = 'Upregulated'
+    df.loc[(df['{logfc_column}'] <= -1.0) & (df['{pvalue_column}'] <= 0.05), 'Significance'] = 'Downregulated'
+    
+    # Create the volcano plot
+    fig = px.scatter(df, 
+                      x='{logfc_column}', 
+                      y='neg_log10_pvalue',
+                      color='Significance',
+                      hover_data=['{gene_column}'] if '{gene_column}' != 'None' else None,
+                      title='{title}',
+                      labels={{'{logfc_column}': 'Log2 Fold Change', 
+                              'neg_log10_pvalue': '-Log10 P-value'}})
+    
+    # Add significance threshold lines
+    fig.add_hline(y=-np.log10(0.05), line_dash="dash", line_color="gray", annotation_text="p=0.05")
+    fig.add_vline(x=1.0, line_dash="dash", line_color="gray")
+    fig.add_vline(x=-1.0, line_dash="dash", line_color="gray")
+    
+    # Customize colors
+    color_map = {{'Upregulated': 'red', 'Downregulated': 'blue', 'Not Significant': 'lightgray'}}
+    fig.for_each_trace(lambda t: t.update(marker_color=color_map.get(t.name, 'lightgray')))
+    
+    fig.write_html(plot_filename)

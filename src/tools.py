@@ -1,10 +1,7 @@
 import logging
-import json
-import re
 import os
 import yaml
 import pandas as pd
-import numpy as np
 from typing import List, Dict, Any
 from langchain.tools import Tool
 from datetime import datetime
@@ -13,28 +10,34 @@ import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
+# Global state management for data passed between tools.
+# NOTE: This is not thread-safe. A production application should use a different method.
 LAST_QUERY_DATA = {"data": None, "query_info": "", "timestamp": None}
 
 def store_query_data(data: List[Dict], query_info: str = ""):
+    """Store data and metadata from a SQL query for later use by plotting tools."""
     LAST_QUERY_DATA["data"] = data
     LAST_QUERY_DATA["query_info"] = query_info
     LAST_QUERY_DATA["timestamp"] = datetime.now()
     logger.info(f"Data stored successfully for plotting. {len(data)} rows available.")
 
 def get_plot_instructions():
-    prompts_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'prompts.yaml')
+    """Load plot instructions from the config file."""
+    plot_instructions_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'plot_instructions.yaml')
     try:
-        with open(prompts_path, 'r') as file:
-            config = yaml.safe_load(file)
-            return config.get("plot_instructions"), config.get("allowed_plots")
+        with open(plot_instructions_path, 'r') as file:
+            plot_instructions = yaml.safe_load(file)
+            return plot_instructions, list(plot_instructions.keys())
     except FileNotFoundError:
-        logger.error(f"Error: prompts.yaml not found at {prompts_path}")
+        logger.error(f"Error: plot_instructions.yaml not found at {plot_instructions_path}")
         return {}, []
 
 PLOT_INSTRUCTIONS, ALLOWED_PLOTS = get_plot_instructions()
 
 def create_tools(db) -> List[Tool]:
+    """Create and return a list of tools for the RNA-seq agent."""
     def sql_query_tool(query: str) -> str:
+        """Execute a read-only SQL query on the database and return a summary of results."""
         logger.info(f"[SQL_TOOL] Executing query: {query}")
         result = db.execute_query(query)
         
@@ -65,6 +68,7 @@ def create_tools(db) -> List[Tool]:
         return output
 
     def database_schema_tool(input_str: str) -> str:
+        """Return the schema of all available tables in the database."""
         logger.info("[SCHEMA_TOOL] Retrieving database schema")
         result = db.get_table_info()
         if "error" in result:
@@ -88,6 +92,7 @@ def create_tools(db) -> List[Tool]:
         return output
 
     def sample_column_values_tool(query: str = "") -> str:
+        """Retrieve a list of distinct, unique values from text columns."""
         logger.info("[SAMPLE_VALUES_TOOL] Retrieving sample column values")
         all_sample_values = {}
         table_names = db.get_table_names()
@@ -105,52 +110,113 @@ def create_tools(db) -> List[Tool]:
                     if values_result.get("data"):
                         all_sample_values[f"{table}.{col}"] = [d.get(col) for d in values_result['data']]
             except Exception as e:
-                logger.warning(f"[SAMPLE_VALUES_TOOL] Error with table {table}: {e}")
-        return json.dumps(all_sample_values)
-
+                logger.error(f"Error fetching sample values from {table}: {e}")
+                continue
+        
+        if not all_sample_values:
+            return "Could not find any text columns with sample values."
+        
+        output = "Here are a few sample values from key text columns:\n"
+        for column, values in all_sample_values.items():
+            output += f"- {column}: {', '.join([str(v) for v in values])}\n"
+        return output
+    
     def create_plot_tool(plot_request: str) -> str:
-        logger.info(f"[PLOT_TOOL] Creating plot: {plot_request}")
+        """Generate a Plotly plot based on the last retrieved data."""
+        logger.info(f"[PLOT_TOOL] Attempting to create plot with request: '{plot_request}'")
         
         if not LAST_QUERY_DATA["data"]:
-            return "Error: No data available for plotting. Please run a SQL query first."
-            
+            return "Plot creation failed: No data available. You must run a SQL_Query first to get data."
+        
+        data_age = (datetime.now() - LAST_QUERY_DATA["timestamp"]).total_seconds()
+        if data_age > 120:
+            return "Plot creation failed: The data from the last query is too old. Please run a new query."
+
         try:
             parts = plot_request.split("|")
-            plot_type = parts[0].strip()
+            plot_type = parts[0].strip().lower()
             plot_params = {}
             for param in parts[1:]:
                 if '=' in param:
                     key, value = param.split('=', 1)
                     plot_params[key.strip()] = value.strip()
-            
+
             if plot_type not in ALLOWED_PLOTS:
-                return f"Plot type '{plot_type}' is not allowed. Allowed types: {ALLOWED_PLOTS}"
-                
-            data = LAST_QUERY_DATA["data"]
-            df = pd.DataFrame(data)
+                return f"Plot type '{plot_type}' is not allowed. Allowed types are: {', '.join(ALLOWED_PLOTS)}"
+
+            df = pd.DataFrame(LAST_QUERY_DATA["data"])
+            fig = None
             
-            template_code = PLOT_INSTRUCTIONS.get(plot_type, {}).get("template", "")
-            if not template_code:
-                return f"Error: No template found for plot type '{plot_type}'."
-                
-            filled_code = template_code.format(**plot_params)
-            now = datetime.now()
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            plot_filename = f"plots/{plot_type}_{timestamp}.html"
-            os.makedirs("plots", exist_ok=True)
-            
-            exec_globals = {
-                'df': df, 'px': px, 'go': go, 'pd': pd, 'np': np, 'os': os,
-                'plotly_filename': plot_filename,
-                '__builtins__': {'__import__': __import__, 'print': print, 'open': open, 'ValueError': ValueError}
+            # --- Using a dispatcher for clean plot creation logic ---
+            plot_functions = {
+                'scatter': lambda params: px.scatter(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    color=params.get('color_column'),
+                    size=params.get('size_column'),
+                    hover_data=df.columns,
+                    title=params.get('title', 'Scatter Plot')
+                ),
+                'pca': lambda params: px.scatter(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    color=params.get('color_column'),
+                    size=params.get('size_column'),
+                    hover_data=df.columns,
+                    title=params.get('title', 'PCA Plot')
+                ),
+                'volcano': lambda params: px.scatter(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    color='significant', # Enforced color column
+                    hover_data=df.columns,
+                    title=params.get('title', 'Volcano Plot')
+                ),
+                'heatmap': lambda params: px.imshow(
+                    df.set_index(df.columns[0]).apply(pd.to_numeric, errors='coerce'),
+                    text_auto=True,
+                    aspect="auto",
+                    title=params.get('title', 'Heatmap')
+                ),
+                'bar': lambda params: px.bar(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    color=params.get('color_column'),
+                    title=params.get('title', 'Bar Plot')
+                )
             }
-            exec(filled_code, exec_globals)
             
-            return f"Plot of type '{plot_type}' created successfully. Plot saved to: {plot_filename}"
-            
+            # Special data preparation for certain plots
+            if plot_type == 'volcano':
+                df['significant'] = df[plot_params.get('y_column')].apply(lambda p: 'Significant' if pd.to_numeric(p, errors='coerce') < 0.05 else 'Not Significant')
+                
+            # Call the appropriate function from the dictionary
+            plot_function = plot_functions.get(plot_type)
+            if plot_function:
+                fig = plot_function(plot_params)
+            else:
+                return f"Plot creation failed: '{plot_type}' is not a valid plot type. Allowed types are: {', '.join(ALLOWED_PLOTS)}"
+
+            # Save the plot
+            if fig:
+                assets_plots_dir = os.path.join("assets", "plots")
+                os.makedirs(assets_plots_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                plot_filename = f"{plot_type}_{timestamp}.html"
+                full_path = os.path.join(assets_plots_dir, plot_filename)
+                fig.write_html(full_path)
+                logger.info(f"Plot saved to: {full_path}")
+                return f"Plot of type '{plot_type}' created successfully. Plot saved to: {full_path}"
+            else:
+                return "Plot creation failed: An unexpected error occurred during plot generation."
+
         except Exception as e:
             logger.error(f"[PLOT_TOOL] Plot creation failed: {str(e)}")
-            return f"Plot creation failed: {str(e)}"
+            return f"Plot creation failed: {str(e)}. Please check your query and parameters and try again."
     
     return [
     Tool(
@@ -197,7 +263,7 @@ def create_tools(db) -> List[Tool]:
             "The input must be a specific plot type followed by parameters in a 'key=value' format, "
             "separated by '|'. "
             "Example input: 'volcano|x_column=log2FoldChange|y_column=padj|title=Volcano Plot'. "
-            "Allowed plot types are: 'scatter', 'pca', 'heatmap', and 'volcano'."
+            "Allowed plot types are: 'scatter', 'pca', 'heatmap', 'volcano', and 'bar'."
         ),
         func=create_plot_tool
     )
