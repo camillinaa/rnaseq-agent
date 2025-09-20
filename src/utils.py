@@ -22,7 +22,21 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
         except Exception as e:
             error_str = str(e).lower()
             
-            # Check if it's a rate limit error
+            # Gemini FinishReason enum errors
+            if "'int' object has no attribute 'name'" in str(e):
+                if attempt < max_retries - 1:
+                    delay = min(2 ** attempt + random.uniform(0, 1), 10)
+                    print(f"Gemini API FinishReason error, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Persistent Gemini API error after {max_retries} retries.")
+                    return {
+                        "output": "I encountered a technical issue with the Gemini API. Please try your question again.",
+                        "intermediate_steps": []
+                    }
+                    
+            # Gemini rate limit errors
             if "429" in error_str or "rate limit" in error_str or "capacity" in error_str:
                 if attempt < max_retries - 1:
                     # Exponential backoff with jitter

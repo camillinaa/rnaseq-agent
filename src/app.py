@@ -376,12 +376,17 @@ def process_bot_response(trigger_counter, chat_history):
         else:
             answer = f"Unexpected result type: {type(result)}"
             plot_filename = None
-
-        if plot_filename and os.path.exists(plot_filename):
-            with open(plot_filename, "r") as f:
-                html_plot = f.read()
-        else:
-            html_plot = None
+        
+        html_plot = None
+        if plot_filename:
+            # Construct the full path: go up one directory from src/, then to assets/plots/
+            full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "plots", plot_filename)
+            if os.path.exists(full_path):
+                with open(full_path, "r") as f:
+                    html_plot = f.read()
+            else:
+                print(f"DEBUG: Plot file not found at {full_path}")
+                html_plot = None
 
         # Add bot response to chat history
         updated_chat = [*chat_history, {"role": "bot", "content": answer, "html_plot": html_plot}]

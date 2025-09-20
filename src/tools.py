@@ -210,7 +210,7 @@ def create_tools(db) -> List[Tool]:
                 full_path = os.path.join(assets_plots_dir, plot_filename)
                 fig.write_html(full_path)
                 logger.info(f"Plot saved to: {full_path}")
-                return f"Plot of type '{plot_type}' created successfully. Plot saved to: {full_path}"
+                return plot_filename
             else:
                 return "Plot creation failed: An unexpected error occurred during plot generation."
 
