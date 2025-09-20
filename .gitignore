@@ -1,3 +1,8 @@
 data/
-plots/
+assets/plots/
 omics_query_rnaseq_agent.pptx
+~$omics_query_rnaseq_agent.pptx
+.env
+.gitignore
+.DS_Store
+__pycache__/
