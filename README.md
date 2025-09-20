@@ -124,7 +124,7 @@ Also show me the correlation between different statistical measures.
 
 ### RNAseqAgent Class
 
-#### `__init__(db_path, mistral_api_key)`
+#### `__init__(db_path, gemini_api_key)`
 Initialize the agent with API key and model name.
 
 #### `ask(question)`
@@ -132,7 +132,7 @@ Process a natural language question and return analysis results.
 
 ### RNAseqDatabase Class
 
-#### `__init__(db_path, mistral_api_key)`
+#### `__init__(db_path, gemini_api_key)`
 Initialize the database with its path.
 
 #### `connect()`
@@ -164,7 +164,7 @@ Generate interactive plots from stored data.
 ## Configuration
 
 ### Environment Variables
-- `GEMINI_API_KEY`: Your Mistral AI API key
+- `GEMINI_API_KEY`: Your Gemini AI API key
 
 ### Plot Settings
 - Output directory: `assets/plots/` (configurable)
@@ -227,4 +227,4 @@ For issues and questions:
 
 ---
 
-**Note**: This agent requires a valid Mistral AI API key for natural language processing. Mistral API provides a free tier with extensive use at: https://docs.mistral.ai/getting-started/quickstart/. 
+**Note**: To use the Gemini API, you need an API key. You can create a key for free with a few clicks in Google AI Studio: https://aistudio.google.com/app/apikey.
