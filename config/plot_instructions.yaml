@@ -81,3 +81,41 @@ volcano:
     fig.for_each_trace(lambda t: t.update(marker_color=color_map.get(t.name, 'lightgray')))
     
     fig.write_html(plot_filename)
+
+enrichment:
+  template: |
+    import plotly.express as px
+    import plotly.graph_objects as go
+    
+    # Sort by gene count for better visualization
+    df_sorted = df.sort_values('{x_column}')
+    
+    fig = px.bar(df_sorted,
+                 x='{x_column}',  # gene counts
+                 y='{y_column}',  # pathways
+                 color='{color_column}' if '{color_column}' != 'None' else None,  # q-value
+                 orientation='h',  # horizontal bars work better for pathway names
+                 title='{title}',
+                 labels={{'{x_column}': '{x_label}', '{y_column}': '{y_label}'}},
+                 color_continuous_scale='viridis_r')  # reverse so lower q-values are darker
+    
+    fig.update_layout(yaxis={'categoryorder':'total ascending'})  # order by gene count
+    fig.write_html(plot_filename)
+
+dot:
+  template: |
+    import plotly.express as px
+    
+    fig = px.scatter(df,
+                     x='{x_column}',  # enrichment score
+                     y='{y_column}',  # pathways
+                     size='{size_column}' if '{size_column}' != 'None' else None,  # gene overlap
+                     color='{color_column}' if '{color_column}' != 'None' else None,  # q-value
+                     title='{title}',
+                     labels={{'{x_column}': '{x_label}', '{y_column}': '{y_label}'}},
+                     color_continuous_scale='viridis_r',  # reverse colormap
+                     size_max=20)  # control max dot size
+    
+    fig.update_traces(marker=dict(line=dict(width=0.5, color='black')))  # add borders
+    fig.update_layout(yaxis={'categoryorder':'total ascending'})
+    fig.write_html(plot_filename)

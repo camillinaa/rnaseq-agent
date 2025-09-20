@@ -17,7 +17,9 @@ class RNAseqAgent:
             memory_key="chat_history",
             return_messages=True,
             output_key="output",
-            max_token_limit=50000 # Gemini 2.5 Flash has a 1M token context window
+            max_token_limit=50000, # Gemini 2.5 Flash has a 1M token context window
+            handle_parsing_errors=True,  
+            early_stopping_method="generate" 
         )
 
         self.tools = create_tools(self.db)
@@ -147,6 +149,17 @@ class RNAseqAgent:
                     - It contains 'samples', 'x', 'y', followed by the metadata columns from study_metadata.
                     - Can be used as an alternative to PCA for visualizing sample relationships and clustering
                     by condition.
+                    
+                    Plot-specific Instructions:
+                    When creating plots, consider the biological context:
+                    - For differential expression results (log2FC, p-values): use 'volcano' plots
+                    - For pathway/GO enrichment results: use 'enrichment' or 'dot' plots, and limit pathways to top 10
+                    most significant unless otherwise specified by the user
+                    - For PCA or dimensionality reduction: use 'pca' or 'scatter' plots
+                    - For expression matrices: use 'heatmap' plots
+                    - For general comparisons or counts: use 'bar' plots
+
+                    Always examine the column names in the data to determine the most appropriate plot type.
 
                     General Instructions:
                     - Avoid excessive exploratory queries - aim to answer the user's question in 2-3 SQL 
@@ -164,9 +177,11 @@ class RNAseqAgent:
                     related question.
                     """,
                     "format_instructions": 
-                    """Always respond with either a tool call in JSON format or a Final Answer in JSON format. 
+                    """Always respond with either a tool call in JSON format or a Final Answer.
+                    When you have completed the task, always end your response with "Final Answer: 
+                    [Your descriptive response here]". Do NOT use JSON format for the final answer. 
+                    Only use JSON for intermediate actions.
                     Never provide direct answers without using the Final Answer action."""
-
             }
         )
 

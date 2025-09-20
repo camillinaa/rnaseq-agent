@@ -187,6 +187,25 @@ def create_tools(db) -> List[Tool]:
                     y=params.get('y_column'),
                     color=params.get('color_column'),
                     title=params.get('title', 'Bar Plot')
+                ),
+                'enrichment': lambda params: px.bar(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    color=params.get('color_column') if params.get('color_column') != 'None' else None,
+                    orientation='h',
+                    title=params.get('title', 'Enrichment Plot'),
+                    color_continuous_scale='viridis_r'
+                ),
+                'dot': lambda params: px.scatter(
+                    df,
+                    x=params.get('x_column'),
+                    y=params.get('y_column'),
+                    size=params.get('size_column') if params.get('size_column') != 'None' else None,
+                    color=params.get('color_column') if params.get('color_column') != 'None' else None,
+                    title=params.get('title', 'Dot Plot'),
+                    color_continuous_scale='viridis_r',
+                    size_max=20
                 )
             }
             
@@ -198,6 +217,12 @@ def create_tools(db) -> List[Tool]:
             plot_function = plot_functions.get(plot_type)
             if plot_function:
                 fig = plot_function(plot_params)
+            # Post-process specific plot types
+            if plot_type == 'enrichment':
+                fig.update_layout(yaxis={'categoryorder':'total ascending'})
+            elif plot_type == 'dot':
+                fig.update_traces(marker=dict(line=dict(width=0.5, color='black')))
+                fig.update_layout(yaxis={'categoryorder':'total ascending'})
             else:
                 return f"Plot creation failed: '{plot_type}' is not a valid plot type. Allowed types are: {', '.join(ALLOWED_PLOTS)}"
 
@@ -216,8 +241,7 @@ def create_tools(db) -> List[Tool]:
 
         except Exception as e:
             logger.error(f"[PLOT_TOOL] Plot creation failed: {str(e)}")
-            return f"Plot creation failed: {str(e)}. Please check your query and parameters and try again."
-    
+            return f"Plot creation failed: {str(e)}. Please check your query and parameters and try again."    
     return [
     Tool(
         name="SQL_Query",
@@ -263,7 +287,7 @@ def create_tools(db) -> List[Tool]:
             "The input must be a specific plot type followed by parameters in a 'key=value' format, "
             "separated by '|'. "
             "Example input: 'volcano|x_column=log2FoldChange|y_column=padj|title=Volcano Plot'. "
-            "Allowed plot types are: 'scatter', 'pca', 'heatmap', 'volcano', and 'bar'."
+            f"Allowed plot types are: {', '.join(ALLOWED_PLOTS)}."
         ),
         func=create_plot_tool
     )
