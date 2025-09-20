@@ -21,56 +21,67 @@ A comprehensive AI-powered agent for analyzing RNAseq data with interactive plot
 - **Volcano Plots**: Visualize differential expression results
 - **MA Plots**: Show relationship between expression level and fold change
 - **Pathway Enrichment Plots**: Display enriched biological pathways
-- **Histograms**: Show distribution of values
-- **Scatter Plots**: Explore relationships between variables
-- **Box Plots**: Display data distributions and outliers
+- **Dot Plots**: Display enriched biological pathways as dot plot
 - **Heatmaps**: Visualize correlation matrices
+- **Scatter Plots**: Explore relationships between variables
+- **PCA Plots**: Visualise the principal components 
+- **MDS Plots**: Visualise the MDS scores
+- **Histograms**: Show distribution of values
+- **Box Plots**: Display data distributions and outliers
 - **Bar Plots**: Show categorical data comparisons
 
 ## Installation
 
 ### Prerequisites
 - Python 3.11+
-- Required packages (conda env - container tbd):
+- Conda (for environment management)
 
-```bash
-pip install pandas numpy logging typing os re json dotenv datetime sqlite3 langchain langchain-mistralai matplotlib seaborn plotly dash
-```
 
 ### Environment Setup
-This project requires a .env file with the following variables:
+
+This project uses a conda environment defined in my_env.yaml.
 
 ```bash
-MISTRAL_API_KEY=your_mistral_api_key_here
-MODEL_NAME=mistralai_model_used
-DB_PATH=path_to_your_database
-```
+# Create the conda environment from the environment file
+conda env create -f my_env.yaml
 
-To run the app:
-1. Create a .env file in the project root.
-2. Add the required keys as shown above.
-3. Save the file.
-4. Run the Streamlit app as usual.
+# Activate the environment
+conda activate my_env
+```
+This project requires a .env file in the project root with the following variables:
+
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+MODEL_NAME=gemini-2.5-flash
+DB_PATH=data/rnaseq_results.db
+```
 
 ### File Structure
 ```
-├── README.md               # Project documentation
+├── assets/
+│   ├── fonts/                      # Aptos font 
+│   └── plots/                      # Directory for generated plots
+├── config/
+│   └── plot_instructions.yaml      # Directory for generated plots
 ├── data/
-│   └── rnaseq.db           # SQLite database file
-├── plots/                  # Directory for generated plots
+│   └── rnaseq_results.db           # SQLite database file
 ├── src/
-│   ├── agent.py            # Langchain agent orchestrator
-│   ├── main.py             # Minimal CLI agent runner
-│   ├── app.py              # Dash web conversational interface for agent interaction
-│   ├── plotter.py          # Plot generation tools for the agent
-│   └── database.py         # Database tools for the agent
-└── tests/
-    └── test.py             # Placeholder for unit tests
+│   ├── agent.py                    # Langchain agent orchestrator
+│   ├── app.py                      # Dash web conversational interface for agent interaction
+│   ├── database.py                 # Database tools for the agent
+│   ├── main.py                     # Minimal CLI agent runner
+│   ├── plotter.py                  # Plot generation tools for the agent
+│   ├── tools.py                    # Tool orchestrator for database.py and plotter.py 
+│   └── utils.py                    # Functions for the agent
+├── utils/
+│   └── dir_to_sql.py               # Automated ETL pipeline for rnaseq results
+├── my_env.yaml                     # Requirements file for conda environment
+└── README.md                       # Project documentation
 ```
 
 ## Quick Start
 
-### 1. Web App Interface
+### Web App Interface
 
 To explore your RNA-seq results interactively, run the Dash app:
 
@@ -79,76 +90,6 @@ python src/app.py
 ```
 
 This launches a browser-based UI for asking questions and visualizing answers from your RNA-seq data using the agent.
-
-### 2. Programmatic Usage
-
-If you want to interact with the agent in a script or notebook, use the following. 
-
-```python
-from agent import RNAseqAgent
-
-# Initialize the agent
-agent = RNAseqAgent(
-    db_path="your_rnaseq.db",
-    mistral_api_key="your_mistral_api_key"
-)
-
-# Ask questions about your data
-response = agent.ask("What are the top upregulated genes?")
-print(response)
-
-# Clean up
-agent.close()
-```
-
-Note: This is the same logic used in main.py, which serves as a minimal script to initialize and run the agent without a GUI.
-
-### 3. Running Tests - WIP
-
-```bash
-python test_agent.py
-```
-
-This will:
-- Create a sample database with RNAseq data
-- Test all plotting functionalities
-- Generate example visualizations
-- Validate the complete workflow
-
-## Database Schema
-
-The agent expects SQLite databases with tables respecting the naming convention of nfcore/rnaseq output.
-In particular, the agent expects Deseq2, GSEA, and ORA tables following this naming convention:
-`{sample_subset}_{comparison}_{analysis_type}_{gene_set}`
-
-### Example Tables
-
-#### Differential Expression Table
-```sql
-CREATE TABLE NS_flattening_yes_vs_no_deseq2 (
-    gene_id TEXT PRIMARY KEY,
-    gene_name TEXT,
-    basemean REAL,
-    log2fc REAL,
-    lfcse REAL,
-    stat REAL,
-    pvalue REAL,
-    padj REAL
-);
-```
-
-#### Pathway Enrichment Table
-```sql
-CREATE TABLE NS_flattening_yes_vs_no_ora_hallmark (
-    pathway TEXT PRIMARY KEY,
-    description TEXT,
-    enrichment REAL,
-    pvalue REAL,
-    padj REAL,
-    genes_in_pathway INTEGER,
-    genes_found INTEGER
-);
-```
 
 ## Usage Examples
 
@@ -184,15 +125,15 @@ Also show me the correlation between different statistical measures.
 ### RNAseqAgent Class
 
 #### `__init__(db_path, mistral_api_key)`
-Initialize the agent with database path and API key.
+Initialize the agent with API key and model name.
 
 #### `ask(question)`
 Process a natural language question and return analysis results.
 
-#### `close()`
-Clean up database connections and resources.
-
 ### RNAseqDatabase Class
+
+#### `__init__(db_path, mistral_api_key)`
+Initialize the database with its path.
 
 #### `connect()`
 Establish database connection.
@@ -200,10 +141,19 @@ Establish database connection.
 #### `execute_query(query)`
 Execute SQL query with safety checks.
 
+#### `get_table_names(query)`
+Retrieve a list of all table names.
+
 #### `get_table_info()`
 Retrieve database schema information.
 
+#### `close()`
+Close database connection.
+
 ### RNAseqPlotter Class
+
+#### `init(data, query_info)`
+Initialize the plotter with an LLM and output.
 
 #### `store_query_data(data, query_info)`
 Store query results for plotting.
@@ -214,10 +164,10 @@ Generate interactive plots from stored data.
 ## Configuration
 
 ### Environment Variables
-- `MISTRAL_API_KEY`: Your Mistral AI API key
+- `GEMINI_API_KEY`: Your Mistral AI API key
 
 ### Plot Settings
-- Output directory: `plots/` (configurable)
+- Output directory: `assets/plots/` (configurable)
 - Plot format: HTML (interactive Plotly plots)
 - Default theme: `plotly_white`
 
@@ -231,7 +181,7 @@ Generate interactive plots from stored data.
    - Ensure SQLite3 is available
 
 2. **API Key Issues**
-   - Verify your Mistral API key is valid
+   - Verify your Gemini API key is valid
    - Check API rate limits
    - Ensure internet connectivity
 
