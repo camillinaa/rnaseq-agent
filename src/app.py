@@ -11,6 +11,7 @@ from email.message import EmailMessage
 from main import create_agent
 import datetime
 import utils
+import pandas as pd
 
 # Instantiate your agent
 agent = create_agent()
@@ -31,7 +32,7 @@ app.layout = dmc.MantineProvider([
                 html.Div([
                     html.H2("RNA-seq Data Analysis Assistant", 
                            style={"margin": "0", "fontSize": "24px", "fontWeight": "600", "color": "#1a1a1a"}),
-                    html.P("Query your RNA-seq data and generate visual summaries", 
+                    html.P("Query your RNA-seq data and generate visual summaries and reports", 
                           style={"margin": "5px 0 0 0", "fontSize": "14px", "color": "#666", "fontWeight": "400"})
                 ])
             ], style={"justifyContent": "space-between", "alignItems": "center", "width": "100%"})
@@ -72,11 +73,13 @@ app.layout = dmc.MantineProvider([
                         "borderRadius": "8px",
                         "transition": "all 0.2s ease",
                         "marginBottom": "0px",
-                        "minWidth": "60px"     # Ensure width matches Export
+                        "minWidth": "60px"      # Ensure width matches Export
 
                     }
                 ),
-                dcc.Download(id="download-chat")
+                # The two dDownload components to be used for both text and CSV files
+                dcc.Download(id="download-chat"),
+                dcc.Download(id="download-data-report")
             ], style={
                 "display": "flex",
                 "justifyContent": "flex-end",  # Align the button group to the right
@@ -174,6 +177,8 @@ app.layout = dmc.MantineProvider([
         
         html.Div([
             html.P("Conversations are not saved and will reset if refreshed. Use the export button to download your chat history.", 
+                  style={"fontSize": "12px", "color": "#888", "margin": "10px 0 0 0", "textAlign": "center"}),
+            html.P("Developed by Camilla Callierotti for the National Facility for Data Handling and Analysis.", 
                   style={"fontSize": "12px", "color": "#888", "margin": "10px 0 0 0", "textAlign": "center"})
         ]),
 
@@ -250,8 +255,9 @@ app.layout = dmc.MantineProvider([
 ])
 
 
-def create_bot_message(message, html_content=None):
-
+def create_bot_message(message, html_content=None, csv_preview_html=None, csv_filename=None):
+    print(f"DEBUG create_bot_message: html_content={html_content is not None}, csv_preview_html={csv_preview_html is not None}, csv_filename={csv_filename}")
+    
     renderer = mistune.create_markdown(renderer='html')
     html_message = renderer(message)
     
@@ -274,6 +280,7 @@ def create_bot_message(message, html_content=None):
         )
     ]    
 
+    # Add HTML plot iframe if present
     if html_content:
         children.append(html.Iframe(
             srcDoc=html_content, 
@@ -286,6 +293,61 @@ def create_bot_message(message, html_content=None):
                 "boxShadow": "0 2px 8px rgba(0,0,0,0.1)"
             }
         ))
+    
+    # Add CSV preview if present
+    if csv_preview_html and csv_filename:
+        print("DEBUG: Adding CSV preview to children")
+        csv_container = html.Div([
+            html.Div([
+                html.H6("CSV Report Preview", style={
+                    "margin": "0 0 10px 0", 
+                    "fontSize": "14px", 
+                    "fontWeight": "600",
+                    "color": "#333"
+                }),
+                html.Div([
+                    html.Button(
+                        id={'type': 'download-csv', 'filename': csv_filename},
+                        children=[
+                            html.Span("📁 ", style={"fontSize": "14px"}),
+                            html.Span("Download CSV", style={"fontSize": "12px", "color": "#666"}),
+                        ],
+                        style={
+                        "backgroundColor": "transparent",
+                        "border": "none",
+                        "cursor": "pointer",
+                        "padding": "5px 10px",
+                        "borderRadius": "4px",
+                        "display": "flex",
+                        "alignItems": "center",
+                        "transition": "background-color 0.2s"
+                    },
+                        n_clicks=0
+                    ),
+                ], className="csv-download-button-container"), 
+            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "flex-start", "marginBottom": "10px"}),
+            
+            html.Div([
+                html.Iframe(
+                    srcDoc=csv_preview_html,
+                    style={
+                        "width": "100%",
+                        "height": "350px",
+                        "border": "1px solid #e0e0e0",
+                        "borderRadius": "6px",
+                        "backgroundColor": "#fafafa"
+                    }
+                )
+            ])
+        ], style={
+            "marginTop": "10px",
+            "padding": "15px",
+            "border": "1px solid #e0e0e0",
+            "borderRadius": "12px",
+            "backgroundColor": "#f8f9fa"
+        })
+        children.append(csv_container)
+    
     return dmc.Stack(children, style={"textAlign": "left", "marginBottom": "20px"})
 
 
@@ -362,38 +424,113 @@ def process_bot_response(trigger_counter, chat_history):
     user_input = last_message["content"]
     
     try:
+        # Get response from agent (now returns a dictionary)
         result = agent.ask(user_input)
         print("DEBUG: result from agent.ask:", result)
-
-        if isinstance(result, tuple) and len(result) == 2:
-            answer, plot_filename = result
-        elif isinstance(result, str):
-            answer = result
-            plot_filename = None
-        elif isinstance(result, dict):
-            answer = result.get("output", "No answer found.")
-            plot_filename = result.get("plot_filename")
-        else:
-            answer = f"Unexpected result type: {type(result)}"
-            plot_filename = None
+        
+        # Extract components from the dictionary response
+        answer = result.get("final_answer", "No response received.")
+        plot_filename = result.get("plot_filename")
+        report_filename = result.get("report_filename")
+        print(f"DEBUG: Extracted - plot_filename={plot_filename}, report_filename={report_filename}")
         
         html_plot = None
+        csv_preview_html = None
+
+        # Handle plot file if one was generated
         if plot_filename:
-            # Construct the full path: go up one directory from src/, then to assets/plots/
             full_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "plots", plot_filename)
             if os.path.exists(full_path):
                 with open(full_path, "r") as f:
                     html_plot = f.read()
+                print(f"DEBUG: Plot loaded from {full_path}")
             else:
                 print(f"DEBUG: Plot file not found at {full_path}")
-                html_plot = None
 
-        # Add bot response to chat history
-        updated_chat = [*chat_history, {"role": "bot", "content": answer, "html_plot": html_plot}]
-        
+        # Handle CSV report file if one was generated
+        if report_filename:
+            # Clean the filename - remove any path prefixes that might be included
+            clean_filename = os.path.basename(report_filename)
+            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "reports", clean_filename)
+            print(f"DEBUG: Looking for CSV at: {csv_path}")
+            
+            if os.path.exists(csv_path):
+                try:
+                    # Read CSV and create preview HTML
+                    df = pd.read_csv(csv_path)
+                    print(f"DEBUG: CSV loaded successfully, shape: {df.shape}")
+                    
+                    # Limit preview to first 10 rows for performance
+                    preview_df = df.head(10)
+                    
+                    # Create HTML table with styling
+                    table_html = preview_df.to_html(
+                        classes='csv-preview-table',
+                        table_id='csv-preview',
+                        escape=False,
+                        index=False
+                    )
+                    
+                    # Add CSS styling to the HTML
+                    csv_preview_html = f"""
+                    <style>
+                        body {{ margin: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+                        .csv-preview-table {{
+                            width: 100%;
+                            border-collapse: collapse;
+                            font-size: 12px;
+                        }}
+                        .csv-preview-table th {{
+                            background-color: #f8f9fa;
+                            border: 1px solid #e0e0e0;
+                            padding: 8px 12px;
+                            text-align: left;
+                            font-weight: 600;
+                            color: #333;
+                        }}
+                        .csv-preview-table td {{
+                            border: 1px solid #e0e0e0;
+                            padding: 8px 12px;
+                            text-align: left;
+                        }}
+                        .csv-preview-table tr:nth-child(even) {{
+                            background-color: #f9f9f9;
+                        }}
+                        .csv-preview-table tr:hover {{
+                            background-color: #f0f8ff;
+                        }}
+                    </style>
+                    {table_html}
+                    {f'<p style="font-size: 11px; color: #666; margin-top: 10px; text-align: center;">Showing first 10 rows of {len(df)} total rows</p>' if len(df) > 10 else ''}
+                    """
+                    print("DEBUG: CSV preview HTML created successfully")
+                except Exception as e:
+                    print(f"DEBUG: Error reading CSV file: {e}")
+                    csv_preview_html = None
+            else:
+                print(f"DEBUG: CSV file not found at {csv_path}")
+
+        # Add bot response to chat history, including any filenames and CSV data
+        updated_chat = [*chat_history, {
+            "role": "bot", 
+            "content": answer, 
+            "html_plot": html_plot, 
+            "report_filename": report_filename,
+            "csv_preview_html": csv_preview_html
+        }]
+
+        print(f"DEBUG: Updated chat entry - has csv_preview_html: {csv_preview_html is not None}")
+
     except Exception as e:
-        answer = f"Error: {e}"
-        updated_chat = [*chat_history, {"role": "bot", "content": answer, "html_plot": None}]
+        print(f"DEBUG: Exception in process_bot_response: {e}")
+        answer = f"I encountered an error while processing your question: {str(e)}."
+        updated_chat = [*chat_history, {
+            "role": "bot", 
+            "content": answer, 
+            "html_plot": None, 
+            "report_filename": None,
+            "csv_preview_html": None
+        }]
 
     # Render all messages including the new bot response
     rendered = []
@@ -401,10 +538,73 @@ def process_bot_response(trigger_counter, chat_history):
         if msg["role"] == "user":
             rendered.append(create_user_message(msg["content"]))
         elif msg["role"] == "bot":
-            rendered.append(create_bot_message(msg["content"], msg.get("html_plot")))
+            # Pass the parameters in the correct order and names
+            rendered.append(create_bot_message(
+                msg["content"], 
+                html_content=msg.get("html_plot"),
+                csv_preview_html=msg.get("csv_preview_html"),
+                csv_filename=msg.get("report_filename")
+            ))
 
     return rendered, False, updated_chat
 
+
+# Third callback for CSV downloads
+@app.callback(
+    Output("download-data-report", "data", allow_duplicate=True),
+    # The first argument (n_clicks_list) corresponds to this Input
+    [Input({"type": "download-csv", "filename": dash.dependencies.ALL}, "n_clicks")],
+    [State("chat-history", "data")],
+    prevent_initial_call=True
+)
+def download_csv_file(n_clicks_list, chat_history):
+    # Check if any download button was clicked.
+    if not any(n_clicks_list) or not chat_history:
+        return dash.no_update
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    
+    # 🌟 NEW ROBUST LOGIC 🌟
+    # ctx.args_grouping is a dictionary of argument groups.
+    # The key is the property being listened to ('n_clicks'), and the value is a list 
+    # corresponding to the ALL wildcard, where each item contains 'id' and 'value'.
+    
+    triggered_clicks = ctx.args_grouping['n_clicks']
+    
+    filename = None
+    
+    # Loop through the list to find which button's 'n_clicks' value is non-zero (i.e., triggered)
+    for trigger_info in triggered_clicks:
+        # Check if the trigger's value (n_clicks) is 1 (or any positive number indicating a click)
+        # Note: Dash usually sets the clicked button's n_clicks to a higher value than the others.
+        if trigger_info['value'] is not None and trigger_info['value'] > 0:
+            # The 'id' key here holds the dictionary {'type': 'download-csv', 'filename': '...'}
+            button_id_dict = trigger_info['id']
+            filename = button_id_dict.get('filename')
+            
+            # Reset the n_clicks to 0 for this button to allow future clicks if needed 
+            # (though dcc.Download usually handles a one-time trigger)
+            # We break after the first one is found, assuming only one button was clicked.
+            break
+
+    if not filename:
+        print("DEBUG: No triggered button with a valid filename found.")
+        return dash.no_update
+    
+    # The rest of your logic is correct for pathing and downloading
+    
+    # Find the CSV file path
+    csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "reports", filename)
+    
+    if os.path.exists(csv_path):
+        # dcc.send_file automatically uses the browser's default download location.
+        return dcc.send_file(csv_path, filename=filename, type='text/csv')
+    else:
+        print(f"DEBUG: CSV file not found at {csv_path}")
+        return dash.no_update
+    
 
 @app.callback(
     Output('chat-window', 'children', allow_duplicate=True),
@@ -426,15 +626,29 @@ def export_chat(n_clicks, chat_data):
     if not chat_data:
         return None
     
-    # Create the text content
+    # Check for the latest generated report filename in chat history
+    report_filename = None
+    for message in reversed(chat_data):
+        if message.get("role") == "bot" and message.get("report_filename"):
+            report_filename = message["report_filename"]
+            break
+            
+    if report_filename:
+        # If a report filename is found, download the CSV file
+        # Assumes the report is in a 'reports' subdirectory of the 'assets' folder
+        file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "reports", report_filename)
+        if os.path.exists(file_path):
+            return dcc.send_file(file_path, filename=report_filename, type='text/csv')
+        else:
+            print(f"DEBUG: Report file not found at {file_path}. Defaulting to chat export.")
+
+    # Fallback to creating the text content of the chat history
     chat_text = f"Chat Export - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     chat_text += "=" * 50 + "\n\n"
     
     for message in chat_data:
-        # Adjust these keys based on your chat message structure
-        role = message.get("role", "user")  # or however you store the role
-        content = message.get("content", "")  # or however you store the message content
-        timestamp = message.get("timestamp", "")  # if you have timestamps
+        role = message.get("role", "user")
+        content = message.get("content", "")
         
         if role == "user":
             chat_text += f"User: {content}\n\n"

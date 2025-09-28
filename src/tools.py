@@ -1,5 +1,6 @@
 import logging
 import os
+import io
 import yaml
 import pandas as pd
 from typing import List, Dict, Any
@@ -121,127 +122,238 @@ def create_tools(db) -> List[Tool]:
             output += f"- {column}: {', '.join([str(v) for v in values])}\n"
         return output
     
+    def create_csv_report_tool(query: str = "") -> str:
+        """Generate a CSV report based on the last retrieved data."""
+        logger.info(f"[CSV_REPORT_TOOL] Attempting to create a CSV report'")
+        if not LAST_QUERY_DATA["data"]:
+            return "CSV report creation failed: No data available. You must run a SQL_Query first to get data."
+        
+        # Check the age of the data
+        data_age = (datetime.now() - LAST_QUERY_DATA["timestamp"]).total_seconds()
+        if data_age > 120:
+            return "CSV report creation failed: The data from the last query is too old. Please run a new query."
+        
+        try:
+            df = pd.DataFrame(LAST_QUERY_DATA["data"])
+            assets_reports_dir = os.path.join("assets", "reports")
+            os.makedirs(assets_reports_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"report_{timestamp}.csv"
+            full_path = os.path.join(assets_reports_dir, report_filename)
+            df.to_csv(full_path, index=False)            
+            return report_filename
+        
+        except Exception as e:
+            logger.info(f"[CSV_REPORT_TOOL] CSV report creation failed with error: {e}")
+            return f"CSV report creation failed: An error occurred while generating the report. Error: {e}"
+                
     def create_plot_tool(plot_request: str) -> str:
         """Generate a Plotly plot based on the last retrieved data."""
         logger.info(f"[PLOT_TOOL] Attempting to create plot with request: '{plot_request}'")
         
-        if not LAST_QUERY_DATA["data"]:
-            return "Plot creation failed: No data available. You must run a SQL_Query first to get data."
-        
-        data_age = (datetime.now() - LAST_QUERY_DATA["timestamp"]).total_seconds()
-        if data_age > 120:
-            return "Plot creation failed: The data from the last query is too old. Please run a new query."
-
         try:
+            # Check if data is available
+            if not LAST_QUERY_DATA["data"]:
+                logger.error("[PLOT_TOOL] No data available for plotting")
+                return "No data available. Please run a SQL query first to get data."
+            
+            # Check data freshness
+            data_age = (datetime.now() - LAST_QUERY_DATA["timestamp"]).total_seconds()
+            if data_age > 120:
+                logger.warning(f"[PLOT_TOOL] Data is {data_age} seconds old")
+                return "Data from the last query is too old. Please run a new query."
+
+            # Parse plot request
             parts = plot_request.split("|")
+            if not parts:
+                logger.error("[PLOT_TOOL] Invalid plot request format")
+                return "Invalid plot request format. Please specify plot type and parameters."
+                
             plot_type = parts[0].strip().lower()
             plot_params = {}
+            
             for param in parts[1:]:
                 if '=' in param:
                     key, value = param.split('=', 1)
                     plot_params[key.strip()] = value.strip()
 
+            # Validate plot type
             if plot_type not in ALLOWED_PLOTS:
+                logger.error(f"[PLOT_TOOL] Invalid plot type: {plot_type}")
                 return f"Plot type '{plot_type}' is not allowed. Allowed types are: {', '.join(ALLOWED_PLOTS)}"
 
+            # Create DataFrame from data
             df = pd.DataFrame(LAST_QUERY_DATA["data"])
-            fig = None
+            if df.empty:
+                logger.error("[PLOT_TOOL] DataFrame is empty")
+                return "No valid data to plot."
+
+            # Validate required columns exist
+            required_columns = _get_required_columns(plot_type, plot_params)
+            missing_columns = [col for col in required_columns if col and col not in df.columns]
+            if missing_columns:
+                logger.error(f"[PLOT_TOOL] Missing required columns: {missing_columns}")
+                return f"Missing required columns: {', '.join(missing_columns)}. Available columns: {', '.join(df.columns)}"
+
+            # Create the plot
+            fig = _create_plot(plot_type, df, plot_params)
             
-            # --- Using a dispatcher for clean plot creation logic ---
-            plot_functions = {
-                'scatter': lambda params: px.scatter(
+            if fig is None:
+                logger.error(f"[PLOT_TOOL] Failed to create {plot_type} plot")
+                return f"Failed to create {plot_type} plot. Please check your parameters."
+
+            # Save the plot
+            plot_filename = _save_plot(fig, plot_type)
+            if plot_filename:
+                logger.info(f"[PLOT_TOOL] Successfully created plot: {plot_filename}")
+                return plot_filename
+            else:
+                logger.error("[PLOT_TOOL] Failed to save plot")
+                return "Failed to save the plot."
+                
+        except KeyError as e:
+            logger.error(f"[PLOT_TOOL] Missing required parameter or column: {str(e)}")
+            return f"Missing required parameter or column. Please check your plot request."
+        
+        except ValueError as e:
+            logger.error(f"[PLOT_TOOL] Invalid data or parameter values: {str(e)}")
+            return "Invalid data or parameter values. Please check your data types and parameters."
+        
+        except Exception as e:
+            logger.error(f"[PLOT_TOOL] Unexpected error during plot creation: {str(e)}")
+            return "An unexpected error occurred while creating the plot. Please try again with different parameters."
+
+
+    def _get_required_columns(plot_type: str, plot_params: dict) -> list:
+        """Get required columns for each plot type."""
+        column_requirements = {
+            'scatter': [plot_params.get('x_column'), plot_params.get('y_column')],
+            'pca': [plot_params.get('x_column'), plot_params.get('y_column')],
+            'volcano': [plot_params.get('x_column'), plot_params.get('y_column')],
+            'heatmap': [],  # Uses first column as index
+            'bar': [plot_params.get('x_column'), plot_params.get('y_column')],
+            'enrichment': [plot_params.get('x_column'), plot_params.get('y_column')],
+            'dot': [plot_params.get('x_column'), plot_params.get('y_column')]
+        }
+        return column_requirements.get(plot_type, [])
+
+
+    def _create_plot(plot_type: str, df: pd.DataFrame, plot_params: dict):
+        """Create the appropriate plot based on type and parameters."""
+        try:
+            if plot_type == 'scatter':
+                return px.scatter(
                     df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    color=params.get('color_column'),
-                    size=params.get('size_column'),
-                    hover_data=df.columns,
-                    title=params.get('title', 'Scatter Plot')
-                ),
-                'pca': lambda params: px.scatter(
+                    x=plot_params.get('x_column'),
+                    y=plot_params.get('y_column'),
+                    color=plot_params.get('color_column') if plot_params.get('color_column') != 'None' else None,
+                    size=plot_params.get('size_column') if plot_params.get('size_column') != 'None' else None,
+                    hover_data=df.columns.tolist(),
+                    title=plot_params.get('title', 'Scatter Plot')
+                )
+                
+            elif plot_type == 'pca':
+                return px.scatter(
                     df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    color=params.get('color_column'),
-                    size=params.get('size_column'),
-                    hover_data=df.columns,
-                    title=params.get('title', 'PCA Plot')
-                ),
-                'volcano': lambda params: px.scatter(
-                    df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    color='significant', # Enforced color column
-                    hover_data=df.columns,
-                    title=params.get('title', 'Volcano Plot')
-                ),
-                'heatmap': lambda params: px.imshow(
-                    df.set_index(df.columns[0]).apply(pd.to_numeric, errors='coerce'),
+                    x=plot_params.get('x_column'),
+                    y=plot_params.get('y_column'),
+                    color=plot_params.get('color_column') if plot_params.get('color_column') != 'None' else None,
+                    size=plot_params.get('size_column') if plot_params.get('size_column') != 'None' else None,
+                    hover_data=df.columns.tolist(),
+                    title=plot_params.get('title', 'PCA Plot')
+                )
+                
+            elif plot_type == 'volcano':
+                # Create significance column
+                y_col = plot_params.get('y_column')
+                df_copy = df.copy()
+                df_copy['significant'] = df_copy[y_col].apply(
+                    lambda p: 'Significant' if pd.to_numeric(p, errors='coerce') < 0.05 else 'Not Significant'
+                )
+                return px.scatter(
+                    df_copy,
+                    x=plot_params.get('x_column'),
+                    y=y_col,
+                    color='significant',
+                    hover_data=df.columns.tolist(),
+                    title=plot_params.get('title', 'Volcano Plot')
+                )
+                
+            elif plot_type == 'heatmap':
+                # Use first column as index and convert to numeric
+                numeric_df = df.set_index(df.columns[0]).apply(pd.to_numeric, errors='coerce')
+                return px.imshow(
+                    numeric_df,
                     text_auto=True,
                     aspect="auto",
-                    title=params.get('title', 'Heatmap')
-                ),
-                'bar': lambda params: px.bar(
+                    title=plot_params.get('title', 'Heatmap')
+                )
+                
+            elif plot_type == 'bar':
+                return px.bar(
                     df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    color=params.get('color_column'),
-                    title=params.get('title', 'Bar Plot')
-                ),
-                'enrichment': lambda params: px.bar(
+                    x=plot_params.get('x_column'),
+                    y=plot_params.get('y_column'),
+                    color=plot_params.get('color_column') if plot_params.get('color_column') != 'None' else None,
+                    title=plot_params.get('title', 'Bar Plot')
+                )
+                
+            elif plot_type == 'enrichment':
+                fig = px.bar(
                     df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    color=params.get('color_column') if params.get('color_column') != 'None' else None,
+                    x=plot_params.get('x_column'),
+                    y=plot_params.get('y_column'),
+                    color=plot_params.get('color_column') if plot_params.get('color_column') != 'None' else None,
                     orientation='h',
-                    title=params.get('title', 'Enrichment Plot'),
+                    title=plot_params.get('title', 'Enrichment Plot'),
                     color_continuous_scale='viridis_r'
-                ),
-                'dot': lambda params: px.scatter(
+                )
+                fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+                return fig
+                
+            elif plot_type == 'dot':
+                fig = px.scatter(
                     df,
-                    x=params.get('x_column'),
-                    y=params.get('y_column'),
-                    size=params.get('size_column') if params.get('size_column') != 'None' else None,
-                    color=params.get('color_column') if params.get('color_column') != 'None' else None,
-                    title=params.get('title', 'Dot Plot'),
+                    x=plot_params.get('x_column'),
+                    y=plot_params.get('y_column'),
+                    size=plot_params.get('size_column') if plot_params.get('size_column') != 'None' else None,
+                    color=plot_params.get('color_column') if plot_params.get('color_column') != 'None' else None,
+                    title=plot_params.get('title', 'Dot Plot'),
                     color_continuous_scale='viridis_r',
                     size_max=20
                 )
-            }
-            
-            # Special data preparation for certain plots
-            if plot_type == 'volcano':
-                df['significant'] = df[plot_params.get('y_column')].apply(lambda p: 'Significant' if pd.to_numeric(p, errors='coerce') < 0.05 else 'Not Significant')
-                
-            # Call the appropriate function from the dictionary
-            plot_function = plot_functions.get(plot_type)
-            if plot_function:
-                fig = plot_function(plot_params)
-            # Post-process specific plot types
-            if plot_type == 'enrichment':
-                fig.update_layout(yaxis={'categoryorder':'total ascending'})
-            elif plot_type == 'dot':
                 fig.update_traces(marker=dict(line=dict(width=0.5, color='black')))
-                fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+                return fig
+                
             else:
-                return f"Plot creation failed: '{plot_type}' is not a valid plot type. Allowed types are: {', '.join(ALLOWED_PLOTS)}"
-
-            # Save the plot
-            if fig:
-                assets_plots_dir = os.path.join("assets", "plots")
-                os.makedirs(assets_plots_dir, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                plot_filename = f"{plot_type}_{timestamp}.html"
-                full_path = os.path.join(assets_plots_dir, plot_filename)
-                fig.write_html(full_path)
-                logger.info(f"Plot saved to: {full_path}")
-                return plot_filename
-            else:
-                return "Plot creation failed: An unexpected error occurred during plot generation."
-
+                logger.error(f"[PLOT_TOOL] Unknown plot type: {plot_type}")
+                return None
+                
         except Exception as e:
-            logger.error(f"[PLOT_TOOL] Plot creation failed: {str(e)}")
-            return f"Plot creation failed: {str(e)}. Please check your query and parameters and try again."    
+            logger.error(f"[PLOT_TOOL] Error creating {plot_type} plot: {str(e)}")
+            return None
+
+    def _save_plot(fig, plot_type: str) -> str:
+        """Save the plot to file and return filename."""
+        try:
+            assets_plots_dir = os.path.join("assets", "plots")
+            os.makedirs(assets_plots_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            plot_filename = f"{plot_type}_{timestamp}.html"
+            full_path = os.path.join(assets_plots_dir, plot_filename)
+            
+            fig.write_html(full_path)
+            logger.info(f"[PLOT_TOOL] Plot saved to: {full_path}")
+            return plot_filename
+            
+        except Exception as e:
+            logger.error(f"[PLOT_TOOL] Error saving plot: {str(e)}")
+            return None
+        
+    
     return [
     Tool(
         name="SQL_Query",
@@ -249,10 +361,12 @@ def create_tools(db) -> List[Tool]:
             "Execute SQL queries against the RNAseq database to retrieve information "
             "about genes, samples, differential expression results, and metadata. "
             "This is the primary tool for data retrieval. "
-            "Input should be a complete, valid SQL SELECT statement. "
             "Always use this tool first when a user asks a question that requires data "
             "from the database, such as 'list all differentially expressed genes,' "
             "'show the top 10 genes by log2FoldChange,' or 'find data for a specific gene.'"
+            "Action_Input advice: "
+            "Input should be a complete, valid SQL SELECT statement. "
+            "ORDER BY clauses should come after UNION ALL not before. "
         ),
         func=sql_query_tool
     ),
@@ -277,6 +391,17 @@ def create_tools(db) -> List[Tool]:
             "The input is not required; simply pass an empty string."
         ),
         func=sample_column_values_tool
+    ),
+    Tool(
+        name="Create_Report",
+        description=(
+            "Generate a CSV report from the data retrieved by the 'SQL_Query' tool. "
+            "This tool requires data to be available from a preceding SQL query. "
+            "Do not call this tool until after a successful 'SQL_Query' has been executed. "
+            "The input to this tool is a simple string that triggers the report generation. "
+            "Example input: 'generate report'. "
+        ),
+        func=create_csv_report_tool
     ),
     Tool(
         name="Create_Plot",
