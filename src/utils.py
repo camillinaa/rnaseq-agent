@@ -17,6 +17,25 @@ def invoke_with_retry(agent, input_dict: Dict[str, str], max_retries: int = 5) -
     for attempt in range(max_retries):
         try:
             result = agent.invoke(input_dict)
+            
+            if isinstance(result, dict):
+                output = result.get("output", "")
+            else:
+                output = result
+
+            # If the model returned a parse error but still produced text, clean it up
+            if isinstance(output, str) and "could not parse llm output:" in output.lower():
+                # Extract everything after the colon
+                cleaned = output.split(":", 1)[-1].strip()
+                logger.warning("Recovered output after parsing failure.")
+                output = cleaned
+
+            # Replace the cleaned text back into the result
+            if isinstance(result, dict):
+                result["output"] = output
+            else:
+                result = {"output": output, "intermediate_steps": []}
+
             return result
             
         except Exception as e:
@@ -64,5 +83,16 @@ def reset_memory(agent: Any):
         logger.error("[RESET] Agent instance is missing 'memory' attribute.")
         return
     
+    # Log memory before clearing
+    if hasattr(agent.memory, 'chat_memory'):
+        msg_count = len(agent.memory.chat_memory.messages)
+        logger.info(f"[RESET] Current memory has {msg_count} messages")
+        
     agent.memory.clear()
-    logger.info("[RESET] Memory cleared.")
+
+    # Log memory after clearing
+    if hasattr(agent.memory, 'chat_memory'):
+        msg_count_after = len(agent.memory.chat_memory.messages)
+        logger.info(f"[RESET] Memory after clear has {msg_count_after} messages (should be 0)")
+    
+    logger.info("[RESET] Memory cleared successfully.")

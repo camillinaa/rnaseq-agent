@@ -424,7 +424,7 @@ def process_bot_response(trigger_counter, chat_history):
     user_input = last_message["content"]
     
     try:
-        # Get response from agent (now returns a dictionary)
+        # THIS IS WHERE THE AGENT IS CALLED
         result = agent.ask(user_input)
         print("DEBUG: result from agent.ask:", result)
         
