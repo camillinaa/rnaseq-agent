@@ -428,10 +428,10 @@ def process_bot_response(trigger_counter, chat_history):
         result = agent.ask(user_input)
         print("DEBUG: result from agent.ask:", result)
         
-        # Extract components from the dictionary response
-        answer = result.get("final_answer", "No response received.")
-        plot_filename = result.get("plot_filename")
-        report_filename = result.get("report_filename")
+        # Get the tuple returned by agent.ask
+        answer, plot_filename = agent.ask(user_input)
+        print("DEBUG: result from agent.ask:", (answer, plot_filename))
+        report_filename = None
         print(f"DEBUG: Extracted - plot_filename={plot_filename}, report_filename={report_filename}")
         
         html_plot = None
