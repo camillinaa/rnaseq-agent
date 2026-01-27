@@ -1,0 +1,22 @@
+Sample	R	openxlsx	msigdbr	enrichplot	clusterProfiler	optparse	SummarizedExperiment	Biobase	GenomicRanges	GenomeInfoDb	IRanges	S4Vectors	BiocGenerics	MatrixGenerics	matrixStats	stringr	ggplot2	pheatmap	getchromsizes	DESeq2	edgeR	limma	mawk	sed	perl	python	gunzip	salmon	star	samtools	gawk	ucsc	nfdata-omics/rnaseq	Nextflow
+CLUSTERPROFILER_ORA	4.4.2	4.2.8	7.5.1	1.26.6	4.14.4	1.7.5																												
+CONTROL_GENE_HEATMAP	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1	1.5.1	3.5.1	1.0.12																
+CUSTOM_GETCHROMSIZES																			1.21															
+DESEQ2_COMPARE	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1	1.5.1	3.5.1			1.46.0														
+DESEQ2_FIT	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1	1.5.1				1.46.0	4.4.0	3.62.1												
+GENEID_TO_GENENAME																							null	null										
+GSEA	4.4.2	4.2.8		1.26.6	4.14.4	1.7.5																												
+GSEA_MERGE	4.4.2	4.2.7.1				1.7.5										1.5.1																		
+GTF2BED																									5.26.2									
+GTF_FILTER																										3.9.5								
+GUNZIP_FASTA																											1.1							
+GUNZIP_GTF																											1.1							
+GUNZIP_TRANSCRIPT_FASTA																											1.1							
+OBJ_CONSTRUCTION	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1																			
+PCA_AND_MDS	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1		3.5.1				4.4.0	3.62.1												
+R_COUNT_NORM	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1						4.4.0	3.62.1												
+SALMON_INDEX																												1.10.3						
+SAMPLES_CORRELATION	4.4.2					1.7.5	1.36.0	2.66.0	1.58.0	1.42.0	2.40.0	0.44.0	0.52.0	1.18.0	1.4.1	1.5.1	3.5.1	1.0.12																
+STAR_GENOMEGENERATE																													2.7.11b	1.2	5.1.0			
+UCSC_GTFTOGENEPRED																																447		
+Workflow																																	v0.0.0dev-gdd86bb6	24.04.4

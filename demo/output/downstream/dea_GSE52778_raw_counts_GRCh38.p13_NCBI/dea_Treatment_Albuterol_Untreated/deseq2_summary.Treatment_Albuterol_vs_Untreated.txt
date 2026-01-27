@@ -1,0 +1,12 @@
+#DGE	GSE52778_raw_counts_GRCh38.p13_NCBI	Treatment:Albuterol:Untreated
+
+out of 15196 with nonzero total read count
+adjusted p-value < 0.05
+LFC > 0 (up)       : 4, 0.026%
+LFC < 0 (down)     : 1, 0.0066%
+outliers [1]       : 0, 0%
+low counts [2]     : 0, 0%
+(mean count < 9)
+[1] see 'cooksCutoff' argument of ?results
+[2] see 'independentFiltering' argument of ?results
+

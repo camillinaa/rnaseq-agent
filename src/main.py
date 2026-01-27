@@ -6,7 +6,7 @@ from database import RNAseqDatabase
 
 load_dotenv()
 
-def create_agent():
+def create_agent(db_path):
     db_path = os.getenv("DB_PATH", "data/rnaseq.db")
     llm = ChatGoogleGenerativeAI(
         model=os.getenv("MODEL_NAME"), 
