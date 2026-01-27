@@ -13,7 +13,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--db_path", type=str, required=True,
-    help="Path where the SQLite database will be created"
+    help="Path where the SQLite database will be created. Must include desired database name with '.db' extension, eg. results.db"
 )
 
 args = parser.parse_args()
@@ -123,7 +123,7 @@ for subset_dir in base_dir.glob("dea_*"):
 
         # ---- DESeq2 results ----
         for deseq_file in comparison_dir.glob("deseq2_toptable.*.txt"):
-            df = pd.read_csv(deseq_file, sep="\t")
+            df = pd.read_csv(deseq_file, sep="\t", comment="#")
             df.insert(0, "comparison_variable", comparison_variable)
             df.insert(0, "comparison1", comparison1)
             df.insert(0, "comparison2", comparison2)

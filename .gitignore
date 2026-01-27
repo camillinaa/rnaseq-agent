@@ -1,2 +1,5 @@
-data/
 .env
+data/
+.vscode/
+src/__pycache__/
+src/.vscode/
