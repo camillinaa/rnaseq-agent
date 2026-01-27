@@ -1,5 +1,0 @@
-Comparison	Upreg	Upreg_percent	Downreg	Downreg_percent
-Treatment_Albuterol_vs_Untreated	4	0.026%	1	0.0066%
-Treatment_Albuterol_Dexamethasone_vs_Untreated	11	0.072%	0	0%
-Treatment_Albuterol_Dexamethasone_vs_Dexamethasone	0	0%	0	0%
-Treatment_Dexamethasone_vs_Untreated	1190	7.8%	869	5.7%
