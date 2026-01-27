@@ -88,7 +88,7 @@ DB_PATH=data/rnaseq_results.db
 
 This script implements an automated ETL pipeline that extracts structured outputs from a directory, transforms them into normalized tables, and loads them into a SQLite database for downstream querying and analytics.
 ```
-python dir_to_sql.py \
+python utils/dir_to_sql.py \
   --base_dir ".../output/downstream/" \
   --db_path ".../results.db"
 ```
