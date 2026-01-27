@@ -30,6 +30,9 @@ A comprehensive AI-powered agent for analyzing RNAseq data with interactive plot
 - **Box Plots**: Display data distributions and outliers
 - **Bar Plots**: Show categorical data comparisons
 
+### 📄 **Reports**
+- CSV files containing results of choice (genes, pathways, etc.)
+
 ## Installation
 
 ### Prerequisites
@@ -79,7 +82,21 @@ DB_PATH=data/rnaseq_results.db
 └── README.md                       # Project documentation
 ```
 
-## Quick Start
+## Usage
+
+### Load SQL Database with your Data
+
+This script implements an automated ETL pipeline that extracts structured outputs from a directory, transforms them into normalized tables, and loads them into a SQLite database for downstream querying and analytics.
+```
+python dir_to_sql.py \
+  --base_dir ".../output/downstream/" \
+  --db_path ".../results.db"
+```
+Arguments:
+- --base_dir specifies the root directory containing the files to be ingested. The pipeline recursively traverses this directory during the extraction phase.
+- --db_path specifies the destination path for the SQLite database created during the load phase.
+
+After execution, results.db contains structured, queryable tables derived from the input directory through the automated ETL pipeline.
 
 ### Web App Interface
 
@@ -204,10 +221,6 @@ logging.basicConfig(level=logging.DEBUG)
 3. Add tests for new functionality
 4. Ensure all tests pass
 5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
 
 ## Changelog
 
