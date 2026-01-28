@@ -1,5 +1,6 @@
 .env
 data/
+demo/
 .vscode/
 src/__pycache__/
 src/.vscode/

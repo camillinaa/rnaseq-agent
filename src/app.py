@@ -12,17 +12,9 @@ from main import create_agent
 import datetime
 import utils
 import pandas as pd
-import argparse
 
 
-# Parse command-line arguments
-parser = argparse.ArgumentParser(description="Run RNA-seq chatbot with custom database")
-parser.add_argument("--db", type=str, default=None, 
-                   help="Path to SQLite database file")
-args = parser.parse_args()
-
-# Instantiate your agent
-agent = create_agent(db_path=args.db)
+agent = create_agent()
 utils.reset_memory(agent) # Reset context and memory for fresh session
 
 app = dash.Dash(__name__, external_stylesheets=["https://cdn.jsdelivr.net/npm/@mantine/core@latest/dist/mantine.min.css"])
@@ -742,4 +734,4 @@ app.index_string = '''
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=8051)
